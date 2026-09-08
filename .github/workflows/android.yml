@@ -1,0 +1,40 @@
+name: Minecraft2 Android Test
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Godot
+        run: |
+          wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip -O godot.zip
+          unzip -q godot.zip -d godot
+          mv godot/Godot_v4.4.1-stable_linux.x86_64 godot/godot
+          chmod +x godot/godot
+
+      - name: Install Android export template
+        run: |
+          mkdir -p "$HOME/.local/share/godot/export_templates/4.4.1.stable"
+          wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz -O templates.tpz
+          unzip -q templates.tpz -d templates
+          cp templates/templates/android_debug.apk "$HOME/.local/share/godot/export_templates/4.4.1.stable/android_debug.apk"
+          cp templates/templates/android_release.apk "$HOME/.local/share/godot/export_templates/4.4.1.stable/android_release.apk"
+
+      - name: Export APK
+        run: |
+          mkdir -p build
+          ./godot/godot --headless --path . --editor --quit
+          ./godot/godot --headless --path . --export-debug "Minecraft2 Android" build/Minecraft2-test.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Minecraft2-test-apk
+          path: build/Minecraft2-test.apk
