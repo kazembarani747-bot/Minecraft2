@@ -1,11 +1,13 @@
 extends Node
 
-# Minecraft2 gameplay layer: interaction and survival UX stay modular so the
-# renderer/world implementation can evolve without rewriting the UI.
+# Minecraft2 gameplay layer: interaction, survival, inventory, crafting and saves
+# are modular so the renderer/network core can evolve without rewriting UX.
 const REACH := 6.0
 const HOTBAR_SIZE := 9
+const INVENTORY_SIZE := 27
 const MAX_HEALTH := 20.0
 const MAX_HUNGER := 20.0
+const AUTOSAVE_SECONDS := 20.0
 
 var scene: Node3D
 var player: CharacterBody3D
@@ -15,12 +17,19 @@ var status: Label
 var toast: Label
 var health_bar: ProgressBar
 var hunger_bar: ProgressBar
+var inventory_panel: Panel
+var inventory_grid: GridContainer
+var crafting_output: Button
 var selected_slot := 0
 var health := MAX_HEALTH
 var hunger := MAX_HUNGER
 var world_time := 0.0
+var autosave_timer := 0.0
+var inventory_open := false
 var inventory := ["grass", "dirt", "stone", "wood", "glass", "sand", "brick", "lamp", "blue_crystal"]
 var counts := [32, 32, 64, 16, 16, 32, 16, 8, 4]
+var extra_slots: Array[String] = []
+var extra_counts: Array[int] = []
 
 func _ready() -> void:
     await get_tree().process_frame
@@ -30,18 +39,32 @@ func _ready() -> void:
     player = scene.get_node_or_null("Player") as CharacterBody3D
     if player:
         camera = player.get_node_or_null("Camera3D") as Camera3D
+    _init_extra_inventory()
     _build_survival_hud()
     _build_hotbar()
+    _build_inventory_panel()
     _build_touch_actions()
-    _show_toast("ماینکرافت۲: ساخت‌وساز و تعامل فعال شد")
+    _load_persistent_state()
+    _show_toast("ماینکرافت۲: بقا، موجودی، ساخت‌وساز و ذخیره‌سازی فعال شد")
+
+func _init_extra_inventory() -> void:
+    extra_slots.clear()
+    extra_counts.clear()
+    for i in range(INVENTORY_SIZE - HOTBAR_SIZE):
+        extra_slots.append("")
+        extra_counts.append(0)
 
 func _process(delta: float) -> void:
     if scene == null or player == null:
         return
     world_time = fmod(world_time + delta * 0.7, 240.0)
+    autosave_timer += delta
     _update_day_cycle()
     _update_survival(delta)
     _update_hud()
+    if autosave_timer >= AUTOSAVE_SECONDS:
+        autosave_timer = 0.0
+        _save_persistent_state(false)
 
 func _unhandled_input(event: InputEvent) -> void:
     if scene == null or scene.get("settings_open"):
@@ -49,11 +72,15 @@ func _unhandled_input(event: InputEvent) -> void:
     if event is InputEventKey and event.pressed and not event.echo:
         if event.keycode >= KEY_1 and event.keycode <= KEY_9:
             _select_slot(event.keycode - KEY_1)
-        elif event.keycode == KEY_Q:
+        elif event.keycode == KEY_Q and not inventory_open:
             _drop_selected()
-        elif event.keycode == KEY_E:
+        elif event.keycode == KEY_E and not inventory_open:
             _eat_selected()
-    if event is InputEventMouseButton and event.pressed:
+        elif event.keycode == KEY_I or event.keycode == KEY_TAB:
+            _toggle_inventory()
+        elif event.keycode == KEY_F2:
+            _save_persistent_state(true)
+    if event is InputEventMouseButton and event.pressed and not inventory_open:
         if event.button_index == MOUSE_BUTTON_LEFT:
             _break_target()
         elif event.button_index == MOUSE_BUTTON_RIGHT:
@@ -80,12 +107,10 @@ func _break_target() -> void:
     var block_name := str(body.name)
     if not ["grass", "dirt", "stone", "wood", "glass", "sand", "brick", "lamp", "blue_crystal"].has(block_name):
         return
-    var slot := inventory.find(block_name)
-    if slot < 0:
-        slot = selected_slot
-    counts[slot] += 1
+    _add_item(block_name, 1)
     body.queue_free()
     _show_toast("برداشته شد: %s ×1" % _fa_block_name(block_name))
+    _save_persistent_state(false)
 
 func _place_target() -> void:
     if counts[selected_slot] <= 0:
@@ -100,29 +125,59 @@ func _place_target() -> void:
     if player.global_position.distance_to(cell + Vector3(0.5, 0.5, 0.5)) < 1.35:
         return
     var block_name: String = inventory[selected_slot]
-    var color := _block_color(block_name)
     if scene.has_method("_block"):
-        scene.call("_block", cell, color, block_name)
+        scene.call("_block", cell, _block_color(block_name), block_name)
         counts[selected_slot] -= 1
+        _refresh_hotbar()
         _show_toast("ساخته شد: %s" % _fa_block_name(block_name))
+        _save_persistent_state(false)
 
 func _drop_selected() -> void:
     if counts[selected_slot] > 0:
         counts[selected_slot] -= 1
+        _refresh_hotbar()
         _show_toast("یک آیتم روی زمین افتاد")
+        _save_persistent_state(false)
 
 func _eat_selected() -> void:
     if counts[selected_slot] <= 0:
         return
     hunger = min(MAX_HUNGER, hunger + 4.0)
     counts[selected_slot] -= 1
+    _refresh_hotbar()
     _show_toast("غذا خوردی • گرسنگی +4")
+
+func _add_item(name: String, amount: int) -> bool:
+    var slot := inventory.find(name)
+    if slot >= 0:
+        counts[slot] += amount
+        _refresh_hotbar()
+        return true
+    for i in range(extra_slots.size()):
+        if extra_slots[i] == name:
+            extra_counts[i] += amount
+            _refresh_inventory()
+            return true
+    for i in range(extra_slots.size()):
+        if extra_slots[i].is_empty():
+            extra_slots[i] = name
+            extra_counts[i] = amount
+            _refresh_inventory()
+            return true
+    _show_toast("موجودی پر است")
+    return false
 
 func _select_slot(index: int) -> void:
     if index < 0 or index >= HOTBAR_SIZE:
         return
     selected_slot = index
     _refresh_hotbar()
+
+func _toggle_inventory() -> void:
+    inventory_open = not inventory_open
+    if inventory_panel:
+        inventory_panel.visible = inventory_open
+    _refresh_inventory()
 
 func _build_survival_hud() -> void:
     var layer := CanvasLayer.new()
@@ -193,6 +248,124 @@ func _refresh_hotbar() -> void:
             b.modulate = Color(1.0, 0.95, 0.55, 1.0)
         hotbar.add_child(b)
 
+func _build_inventory_panel() -> void:
+    var layer := get_node("GameplayHUD")
+    inventory_panel = Panel.new()
+    inventory_panel.name = "InventoryPanel"
+    inventory_panel.position = Vector2(270, 105)
+    inventory_panel.size = Vector2(740, 500)
+    inventory_panel.visible = false
+    layer.add_child(inventory_panel)
+
+    var title := Label.new()
+    title.text = "موجودی و ساخت"
+    title.position = Vector2(24, 18)
+    title.add_theme_font_size_override("font_size", 24)
+    inventory_panel.add_child(title)
+
+    var hint := Label.new()
+    hint.text = "I / TAB برای بستن • مواد را با کلیک انتخاب کن"
+    hint.position = Vector2(24, 52)
+    inventory_panel.add_child(hint)
+
+    inventory_grid = GridContainer.new()
+    inventory_grid.columns = 9
+    inventory_grid.position = Vector2(24, 92)
+    inventory_grid.size = Vector2(690, 260)
+    inventory_grid.add_theme_constant_override("h_separation", 6)
+    inventory_grid.add_theme_constant_override("v_separation", 6)
+    inventory_panel.add_child(inventory_grid)
+
+    var craft_title := Label.new()
+    craft_title.text = "ساخت سریع"
+    craft_title.position = Vector2(24, 375)
+    craft_title.add_theme_font_size_override("font_size", 19)
+    inventory_panel.add_child(craft_title)
+
+    crafting_output = Button.new()
+    crafting_output.position = Vector2(24, 410)
+    crafting_output.size = Vector2(310, 54)
+    crafting_output.pressed.connect(_craft_selected)
+    inventory_panel.add_child(crafting_output)
+    _refresh_inventory()
+
+func _refresh_inventory() -> void:
+    if inventory_grid == null:
+        return
+    for child in inventory_grid.get_children():
+        child.queue_free()
+    for i in range(HOTBAR_SIZE):
+        _add_inventory_button(inventory[i], counts[i], i)
+    for i in range(extra_slots.size()):
+        _add_inventory_button(extra_slots[i], extra_counts[i], HOTBAR_SIZE + i)
+    if crafting_output:
+        crafting_output.text = "ساخت چراغ: 4 چوب → 1 چراغ" if _can_craft_lamp() else "ساخت چراغ (مواد کافی نیست)"
+
+func _add_inventory_button(name: String, amount: int, index: int) -> void:
+    var b := Button.new()
+    b.custom_minimum_size = Vector2(72, 62)
+    if name.is_empty():
+        b.text = "—"
+        b.disabled = true
+    else:
+        b.text = "%s\n×%d" % [_fa_block_name(name), amount]
+        b.pressed.connect(func(slot := index): _select_inventory_slot(slot))
+    inventory_grid.add_child(b)
+
+func _select_inventory_slot(index: int) -> void:
+    if index < HOTBAR_SIZE:
+        _select_slot(index)
+    else:
+        var extra := index - HOTBAR_SIZE
+        if extra >= 0 and extra < extra_slots.size() and not extra_slots[extra].is_empty():
+            inventory[selected_slot] = extra_slots[extra]
+            counts[selected_slot] = extra_counts[extra]
+            extra_slots[extra] = ""
+            extra_counts[extra] = 0
+            _refresh_hotbar()
+            _refresh_inventory()
+            _show_toast("آیتم به نوار ابزار منتقل شد")
+
+func _can_craft_lamp() -> bool:
+    return _total_item("wood") >= 4
+
+func _total_item(name: String) -> int:
+    var total := 0
+    for i in range(inventory.size()):
+        if inventory[i] == name:
+            total += counts[i]
+    for i in range(extra_slots.size()):
+        if extra_slots[i] == name:
+            total += extra_counts[i]
+    return total
+
+func _remove_item(name: String, amount: int) -> bool:
+    var remaining := amount
+    for i in range(inventory.size()):
+        if inventory[i] == name and remaining > 0:
+            var take := min(counts[i], remaining)
+            counts[i] -= take
+            remaining -= take
+    for i in range(extra_slots.size()):
+        if extra_slots[i] == name and remaining > 0:
+            var take := min(extra_counts[i], remaining)
+            extra_counts[i] -= take
+            remaining -= take
+            if extra_counts[i] <= 0:
+                extra_slots[i] = ""
+    return remaining <= 0
+
+func _craft_selected() -> void:
+    if not _can_craft_lamp():
+        _show_toast("برای چراغ 4 چوب لازم است")
+        return
+    if _remove_item("wood", 4):
+        _add_item("lamp", 1)
+        _refresh_hotbar()
+        _refresh_inventory()
+        _show_toast("چراغ ساخته شد")
+        _save_persistent_state(true)
+
 func _build_touch_actions() -> void:
     var layer := get_node("GameplayHUD")
     var break_button := Button.new()
@@ -208,6 +381,13 @@ func _build_touch_actions() -> void:
     place_button.size = Vector2(120, 58)
     place_button.pressed.connect(_place_target)
     layer.add_child(place_button)
+
+    var inventory_button := Button.new()
+    inventory_button.text = "🎒 موجودی"
+    inventory_button.position = Vector2(940, 460)
+    inventory_button.size = Vector2(120, 58)
+    inventory_button.pressed.connect(_toggle_inventory)
+    layer.add_child(inventory_button)
 
 func _update_survival(delta: float) -> void:
     if player.is_on_floor() and player.velocity.length() > 2.0:
@@ -238,9 +418,60 @@ func _update_hud() -> void:
         hunger_bar.value = hunger
     if status:
         var phase := "روز" if sin(world_time / 240.0 * TAU) >= 0.0 else "شب"
-        status.text = "زمان: %s • بلوک انتخابی: %s ×%d" % [phase, _fa_block_name(inventory[selected_slot]), counts[selected_slot]]
+        status.text = "زمان: %s • بلوک انتخابی: %s ×%d • F2 ذخیره" % [phase, _fa_block_name(inventory[selected_slot]), counts[selected_slot]]
     if toast and toast.modulate.a > 0.0:
         toast.modulate.a = max(0.0, toast.modulate.a - get_process_delta_time() * 0.6)
+
+func _save_persistent_state(show_message: bool) -> void:
+    if not is_instance_valid(player):
+        return
+    var save_system := get_node_or_null("/root/Minecraft2SaveSystem")
+    if save_system == null:
+        return
+    var data := {
+        "player": {"x": player.global_position.x, "y": player.global_position.y, "z": player.global_position.z},
+        "health": health,
+        "hunger": hunger,
+        "world_time": world_time,
+        "selected_slot": selected_slot,
+        "inventory": inventory.duplicate(),
+        "counts": counts.duplicate(),
+        "extra_slots": extra_slots.duplicate(),
+        "extra_counts": extra_counts.duplicate()
+    }
+    var ok: bool = save_system.call("save_game", data)
+    if show_message:
+        _show_toast("بازی ذخیره شد" if ok else "ذخیره‌سازی ناموفق بود")
+
+func _load_persistent_state() -> void:
+    var save_system := get_node_or_null("/root/Minecraft2SaveSystem")
+    if save_system == null:
+        return
+    var data: Dictionary = save_system.call("load_game")
+    if data.is_empty():
+        return
+    var p: Dictionary = data.get("player", {})
+    if p.has("x") and p.has("y") and p.has("z"):
+        player.global_position = Vector3(float(p["x"]), float(p["y"]), float(p["z"]))
+    health = clamp(float(data.get("health", MAX_HEALTH)), 0.0, MAX_HEALTH)
+    hunger = clamp(float(data.get("hunger", MAX_HUNGER)), 0.0, MAX_HUNGER)
+    world_time = fmod(float(data.get("world_time", 0.0)), 240.0)
+    selected_slot = clamp(int(data.get("selected_slot", 0)), 0, HOTBAR_SIZE - 1)
+    var saved_inventory = data.get("inventory", [])
+    var saved_counts = data.get("counts", [])
+    if saved_inventory is Array and saved_inventory.size() == HOTBAR_SIZE:
+        inventory = saved_inventory.duplicate()
+    if saved_counts is Array and saved_counts.size() == HOTBAR_SIZE:
+        counts = saved_counts.duplicate()
+    var saved_extra = data.get("extra_slots", [])
+    var saved_extra_counts = data.get("extra_counts", [])
+    if saved_extra is Array and saved_extra.size() == extra_slots.size():
+        extra_slots = saved_extra.duplicate()
+    if saved_extra_counts is Array and saved_extra_counts.size() == extra_counts.size():
+        extra_counts = saved_extra_counts.duplicate()
+    _refresh_hotbar()
+    _refresh_inventory()
+    _show_toast("دنیای ذخیره‌شده بارگذاری شد")
 
 func _show_toast(text: String) -> void:
     if toast == null:
