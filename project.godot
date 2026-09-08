@@ -8,6 +8,7 @@ Minecraft2RuntimeBootstrap="*res://core/runtime_bootstrap.gd"
 Minecraft2MenuLocalizer="*res://core/menu_localizer.gd"
 Minecraft2GameplayUpgrade="*res://core/gameplay_upgrade.gd"
 Minecraft2SaveSystem="*res://core/save_system.gd"
+Minecraft2MobSystem="*res://core/mob_system.gd"
 
 [display]
 window/size/viewport_width=1280
