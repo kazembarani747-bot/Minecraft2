@@ -5,6 +5,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env:
+  GODOT_VERSION: 4.4.1
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+  ANDROID_HOME: /usr/local/lib/android/sdk
+
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -12,29 +17,68 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android build dependencies
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;23.2.8568313" "cmake;3.10.2.4988404"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          java -version
+          adb --version
+          sdkmanager --list_installed | grep -E 'platform-tools|platforms;android-34|build-tools;34.0.0|ndk;23.2.8568313|cmake;3.10.2.4988404' || true
+
       - name: Install Godot
         run: |
-          wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_linux.x86_64.zip -O godot.zip
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -O godot.zip
           unzip -q godot.zip -d godot
-          mv godot/Godot_v4.4.1-stable_linux.x86_64 godot/godot
+          mv "godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot/godot
           chmod +x godot/godot
+          ./godot/godot --version
 
-      - name: Install Android export template
+      - name: Install Android export templates
         run: |
-          mkdir -p "$HOME/.local/share/godot/export_templates/4.4.1.stable"
-          wget -q https://github.com/godotengine/godot/releases/download/4.4.1-stable/Godot_v4.4.1-stable_export_templates.tpz -O templates.tpz
+          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -O templates.tpz
           unzip -q templates.tpz -d templates
-          cp templates/templates/android_debug.apk "$HOME/.local/share/godot/export_templates/4.4.1.stable/android_debug.apk"
-          cp templates/templates/android_release.apk "$HOME/.local/share/godot/export_templates/4.4.1.stable/android_release.apk"
+          cp templates/templates/android_debug.apk "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
+          cp templates/templates/android_release.apk "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_release.apk"
+          test -s "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
+          test -s "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_release.apk"
 
-      - name: Export APK
+      - name: Configure Godot Android settings
         run: |
+          mkdir -p "$HOME/.config/godot"
+          cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          EOF
+          cat "$HOME/.config/godot/editor_settings-4.4.tres"
+
+      - name: Validate project and export APK
+        run: |
+          set -euxo pipefail
           mkdir -p build
           ./godot/godot --headless --path . --editor --quit
           ./godot/godot --headless --path . --export-debug "Minecraft2 Android" build/Minecraft2-test.apk
+          test -s build/Minecraft2-test.apk
+          file build/Minecraft2-test.apk
+          sha256sum build/Minecraft2-test.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Minecraft2-test-apk
           path: build/Minecraft2-test.apk
+          if-no-files-found: error
+          retention-days: 14
