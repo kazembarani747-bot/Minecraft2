@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -65,13 +65,13 @@ jobs:
         run: ./godot/godot --headless --path . --editor --quit
 
       - name: Check export presets
-        run: ./godot/godot --headless --path . --export-debug "Minecraft2 Android" /tmp/Minecraft2-check.apk
+        run: ./godot/godot --headless --path . --export-debug "Android" /tmp/Minecraft2-check.apk
 
       - name: Export APK
         run: |
           set -euxo pipefail
           mkdir -p build
-          ./godot/godot --headless --path . --export-debug "Minecraft2 Android" build/Minecraft2-test.apk
+          ./godot/godot --headless --path . --export-debug "Android" build/Minecraft2-test.apk
           test -s build/Minecraft2-test.apk
           file build/Minecraft2-test.apk
           sha256sum build/Minecraft2-test.apk
