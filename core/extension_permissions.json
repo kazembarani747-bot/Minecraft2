@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "permissions": {
+    "audio.play": "Play positional and UI audio",
+    "audio.custom": "Register custom sound assets",
+    "network.http": "Make outbound HTTP requests",
+    "network.websocket": "Open WebSocket connections",
+    "network.lan": "Discover/connect to local-network peers",
+    "microphone.capture": "Capture microphone input when explicitly enabled",
+    "storage.read": "Read extension-owned data",
+    "storage.write": "Write extension-owned data",
+    "world.read": "Read permitted world state",
+    "world.write": "Modify permitted world state",
+    "entities.read": "Read permitted entity state",
+    "entities.spawn": "Spawn registered custom entities",
+    "ui.register": "Register extension UI",
+    "commands.register": "Register slash commands",
+    "render.register": "Register approved rendering resources"
+  },
+  "defaults": {
+    "audio.play": true,
+    "audio.custom": true,
+    "network.http": false,
+    "network.websocket": false,
+    "network.lan": false,
+    "microphone.capture": false,
+    "storage.read": true,
+    "storage.write": true,
+    "world.read": false,
+    "world.write": false,
+    "entities.read": false,
+    "entities.spawn": false,
+    "ui.register": false,
+    "commands.register": false,
+    "render.register": false
+  },
+  "notes": [
+    "Permissions are granted per extension and can be revoked.",
+    "Network and microphone access require explicit user consent.",
+    "Extensions are isolated from unrelated app data by default."
+  ]
+}
