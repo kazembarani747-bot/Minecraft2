@@ -1,0 +1,30 @@
+{
+  "api_version": "1.0.0",
+  "capabilities": [
+    "world",
+    "chunk",
+    "block",
+    "item",
+    "entity",
+    "inventory",
+    "recipe",
+    "loot",
+    "sound",
+    "particle",
+    "commands",
+    "events",
+    "scripting",
+    "resource_pack",
+    "behavior_pack",
+    "networking",
+    "persistence",
+    "mobile_input",
+    "first_person_camera",
+    "third_person_camera"
+  ],
+  "compatibility_adapters": [
+    "bedrock_addon",
+    "fabric_metadata",
+    "forge_metadata"
+  ]
+}
