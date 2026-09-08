@@ -33,7 +33,6 @@ jobs:
           echo "ANDROID_HOME=$ANDROID_HOME"
           java -version
           adb --version
-          sdkmanager --list_installed | grep -E 'platform-tools|platforms;android-34|build-tools;34.0.0|ndk;23.2.8568313|cmake;3.10.2.4988404' || true
 
       - name: Install Godot
         run: |
@@ -50,8 +49,6 @@ jobs:
           unzip -q templates.tpz -d templates
           cp templates/templates/android_debug.apk "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
           cp templates/templates/android_release.apk "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_release.apk"
-          test -s "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
-          test -s "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_release.apk"
 
       - name: Configure Godot Android settings
         run: |
@@ -63,13 +60,17 @@ jobs:
           export/android/java_sdk_path = "$JAVA_HOME"
           export/android/android_sdk_path = "$ANDROID_HOME"
           EOF
-          cat "$HOME/.config/godot/editor_settings-4.4.tres"
 
-      - name: Validate project and export APK
+      - name: Validate project
+        run: ./godot/godot --headless --path . --editor --quit
+
+      - name: Check export presets
+        run: ./godot/godot --headless --path . --export-debug "Minecraft2 Android" /tmp/Minecraft2-check.apk
+
+      - name: Export APK
         run: |
           set -euxo pipefail
           mkdir -p build
-          ./godot/godot --headless --path . --editor --quit
           ./godot/godot --headless --path . --export-debug "Minecraft2 Android" build/Minecraft2-test.apk
           test -s build/Minecraft2-test.apk
           file build/Minecraft2-test.apk
