@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "transport": {"mode": "auto", "fallback": ["local", "relay"]},
+  "features": {
+    "proximity": true,
+    "directional_3d": true,
+    "party": true,
+    "global": true,
+    "push_to_talk": true,
+    "voice_activation": true,
+    "noise_suppression": true,
+    "echo_cancellation": true,
+    "automatic_gain": true,
+    "adaptive_bitrate": true,
+    "per_player_volume": true,
+    "mute": true,
+    "environmental_reverb": true,
+    "occlusion": true,
+    "underwater_filter": true,
+    "radio_effect": true,
+    "ai_npc_voice": false
+  },
+  "proximity": {"max_distance_blocks": 64.0, "falloff": "smooth"},
+  "privacy": {"microphone_default": false, "remember_per_server": true}
+}
