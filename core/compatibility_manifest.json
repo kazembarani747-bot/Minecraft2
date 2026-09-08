@@ -1,0 +1,29 @@
+{
+  "minecraft2_api": "1.0.0",
+  "extension_formats": {
+    "native_minecraft2": {
+      "enabled": true,
+      "entry": "minecraft2.manifest.json"
+    },
+    "bedrock_addon": {
+      "enabled": true,
+      "files": ["manifest.json", "pack_icon.png"],
+      "packs": ["resource_packs", "behavior_packs"]
+    },
+    "fabric_jar": {
+      "detector": "fabric.mod.json",
+      "mode": "adapter",
+      "direct_runtime": false
+    },
+    "forge_jar": {
+      "detector": "META-INF/mods.toml",
+      "mode": "adapter",
+      "direct_runtime": false
+    }
+  },
+  "policy": {
+    "unknown_extensions_are_isolated": true,
+    "missing_capabilities_create_compatibility_stubs": true,
+    "unsafe_native_code_is_not_executed_by_default": true
+  }
+}
