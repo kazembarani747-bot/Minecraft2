@@ -7,8 +7,8 @@ on:
 
 env:
   GODOT_VERSION: 4.4.1
-  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
   ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
 jobs:
   build:
@@ -22,36 +22,60 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android build dependencies
+      - name: Install exact Android dependencies
+        shell: bash
         run: |
+          set -euxo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0" "ndk;23.2.8568313" "cmake;3.10.2.4988404"
+          sdkmanager \
+            "cmdline-tools;latest" \
+            "platform-tools" \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;23.2.8568313" \
+            "cmake;3.10.2.4988404"
+          test -x "$ANDROID_HOME/platform-tools/adb"
+          test -d "$ANDROID_HOME/platforms/android-34"
+          test -d "$ANDROID_HOME/build-tools/34.0.0"
           echo "ANDROID_HOME=$ANDROID_HOME"
           java -version
           adb --version
 
-      - name: Install Godot
+      - name: Install Godot 4.4.1 editor
+        shell: bash
         run: |
+          set -euxo pipefail
           wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" -O godot.zip
           unzip -q godot.zip -d godot
           mv "godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64" godot/godot
           chmod +x godot/godot
           ./godot/godot --version
 
-      - name: Install Android export templates
+      - name: Install matching Android export templates
+        shell: bash
         run: |
-          mkdir -p "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          set -euxo pipefail
+          TEMPLATE_DIR="$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable"
+          mkdir -p "$TEMPLATE_DIR"
           wget -q "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" -O templates.tpz
           unzip -q templates.tpz -d templates
-          cp templates/templates/android_debug.apk "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_debug.apk"
-          cp templates/templates/android_release.apk "$HOME/.local/share/godot/export_templates/${GODOT_VERSION}.stable/android_release.apk"
+          cp templates/templates/android_debug.apk "$TEMPLATE_DIR/android_debug.apk"
+          cp templates/templates/android_release.apk "$TEMPLATE_DIR/android_release.apk"
+          printf '%s' "${GODOT_VERSION}.stable" > "$TEMPLATE_DIR/version.txt"
+          test -s "$TEMPLATE_DIR/android_debug.apk"
+          test -s "$TEMPLATE_DIR/android_release.apk"
+          test -s "$TEMPLATE_DIR/version.txt"
+          cat "$TEMPLATE_DIR/version.txt"
 
-      - name: Configure Godot Android settings
+      - name: Configure Godot Android SDK paths
+        shell: bash
         run: |
+          set -euxo pipefail
           mkdir -p "$HOME/.config/godot"
           cat > "$HOME/.config/godot/editor_settings-4.4.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
@@ -60,16 +84,21 @@ jobs:
           export/android/java_sdk_path = "$JAVA_HOME"
           export/android/android_sdk_path = "$ANDROID_HOME"
           EOF
+          cat "$HOME/.config/godot/editor_settings-4.4.tres"
 
-      - name: Validate project
-        run: ./godot/godot --headless --path . --editor --quit
-
-      - name: Check export presets
-        run: ./godot/godot --headless --path . --export-debug "Android" /tmp/Minecraft2-check.apk
-
-      - name: Export APK
+      - name: Validate project and Android export configuration
+        shell: bash
         run: |
           set -euxo pipefail
+          ./godot/godot --headless --path . --editor --quit
+          ./godot/godot --headless --path . --export-debug "Android" /tmp/Minecraft2-check.apk
+          test -s /tmp/Minecraft2-check.apk
+
+      - name: Export test APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf build
           mkdir -p build
           ./godot/godot --headless --path . --export-debug "Android" build/Minecraft2-test.apk
           test -s build/Minecraft2-test.apk
