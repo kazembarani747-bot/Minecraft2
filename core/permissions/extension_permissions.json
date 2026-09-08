@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "permissions": {
+    "microphone": {"default": false, "description": "Capture microphone input for voice features"},
+    "internet": {"default": false, "description": "Make outbound internet connections"},
+    "network_local": {"default": false, "description": "Discover/connect to devices on the local network"},
+    "voice_chat": {"default": false, "description": "Use Minecraft2 voice transport"},
+    "audio_playback": {"default": true, "description": "Play custom audio through the game audio engine"},
+    "filesystem_data": {"default": true, "description": "Read/write extension data in its sandbox"},
+    "filesystem_game": {"default": false, "description": "Read/write shared game content"},
+    "world_read": {"default": false, "description": "Read world state"},
+    "world_write": {"default": false, "description": "Modify world state"},
+    "entities": {"default": false, "description": "Create/query/modify entities"},
+    "commands": {"default": false, "description": "Register or execute commands"},
+    "ui": {"default": false, "description": "Create custom UI panels and overlays"}
+  },
+  "rules": {
+    "deny_by_default_sensitive": true,
+    "prompt_on_first_use": true,
+    "persist_per_extension": true
+  }
+}
