@@ -1,35 +1,23 @@
-class_name Minecraft2FeatureRegistry
+class_name M2FeatureRegistry
 extends RefCounted
 
-const VERSION := "1.0.0"
+var _features: Dictionary = {}
 
-var features: Dictionary = {}
+func register_feature(id: String, version: String, enabled := true, metadata: Dictionary = {}) -> void:
+    _features[id] = {"version": version, "enabled": enabled, "metadata": metadata.duplicate(true)}
 
-func bootstrap() -> void:
-    register_feature("physics.gravity", true, "World gravity and vertical physics")
-    register_feature("graphics.pbr", true, "Higher-fidelity material pipeline")
-    register_feature("graphics.post_process", true, "Optional post-processing effects")
-    register_feature("graphics.dynamic_lighting", true, "Dynamic light support")
-    register_feature("animation.player_motion", true, "Player motion and camera animation")
-    register_feature("audio.spatial", true, "3D positional audio")
-    register_feature("audio.music", true, "Context-aware background music")
-    register_feature("commands.extended", true, "Extended slash-command system")
-    register_feature("ai.assistant", true, "In-game AI assistant integration point")
-    register_feature("ai.mod_builder", true, "AI-assisted mod/project generation")
-    register_feature("mods.java_bridge", false, "Java mod compatibility bridge")
-    register_feature("network.java", false, "Java server protocol adapter")
-    register_feature("network.bedrock", false, "Bedrock server protocol adapter")
-    register_feature("network.crossplay", false, "Crossplay session layer")
+func has_feature(id: String) -> bool:
+    return _features.has(id)
 
-func register_feature(id: String, ready: bool, description: String) -> void:
-    features[id] = {
-        "ready": ready,
-        "description": description,
-        "version": VERSION
-    }
+func is_enabled(id: String) -> bool:
+    return _features.has(id) and bool(_features[id]["enabled"])
 
-func is_ready(id: String) -> bool:
-    return bool(features.get(id, {}).get("ready", false))
+func set_enabled(id: String, enabled: bool) -> void:
+    if _features.has(id):
+        _features[id]["enabled"] = enabled
 
-func report() -> Dictionary:
-    return features.duplicate(true)
+func get_feature(id: String) -> Dictionary:
+    return _features.get(id, {}).duplicate(true)
+
+func list_features() -> Dictionary:
+    return _features.duplicate(true)
