@@ -1,0 +1,20 @@
+{
+  "version": "1.0.0",
+  "mode": "assistant",
+  "capabilities": ["mod_generation", "addon_generation", "error_diagnosis", "content_design", "optimization", "npc_dialogue"],
+  "npc": {
+    "enabled": true,
+    "simulation_only": true,
+    "memory": "bounded",
+    "mood_states": ["happy", "calm", "curious", "worried", "sad", "angry", "excited"],
+    "empathy": true,
+    "relationship_memory": true,
+    "cooldowns": true
+  },
+  "security": {
+    "api_key_from_runtime_input_only": true,
+    "never_store_api_key_in_repository": true,
+    "sandbox_generated_extensions": true,
+    "validate_before_enable": true
+  }
+}
