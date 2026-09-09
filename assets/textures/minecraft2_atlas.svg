@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges">
+  <!-- Minecraft2 original 16x16 tile atlas: grass, dirt, stone, water. -->
+  <rect width="64" height="64" fill="#000"/>
+  <!-- grass: tile (0,0) -->
+  <rect x="0" y="0" width="16" height="16" fill="#5f9f32"/>
+  <path d="M0 2h16v4H0zM2 8h3v2H2zM9 7h2v3H9zM13 11h3v2h-3z" fill="#78b844"/>
+  <path d="M1 13h2v2H1zM6 11h2v3H6zM11 4h2v2h-2z" fill="#477d28"/>
+  <!-- dirt: tile (1,0) -->
+  <rect x="16" y="0" width="16" height="16" fill="#81522d"/>
+  <path d="M18 2h2v2h-2zM25 1h3v2h-3zM29 6h2v3h-2zM20 10h3v2h-3zM27 13h2v2h-2z" fill="#a06a3a"/>
+  <path d="M16 7h3v2h-3zM24 5h2v2h-2zM21 14h2v1h-2z" fill="#674022"/>
+  <!-- stone: tile (2,0) -->
+  <rect x="32" y="0" width="16" height="16" fill="#777d82"/>
+  <path d="M32 4h16v1H32zM36 10h12v1H36zM34 1h1v3h-1zM41 5h1v5h-1zM45 11h1v4h-1z" fill="#91979b"/>
+  <path d="M32 7h4v1h-4zM38 13h4v1h-4zM47 2h1v3h-1z" fill="#60666a"/>
+  <!-- water: tile (3,0) -->
+  <rect x="48" y="0" width="16" height="16" fill="#2774bd"/>
+  <path d="M48 3h5v2h-5zM56 4h8v2h-8zM51 10h7v2h-7zM60 11h4v2h-4z" fill="#4e9be0"/>
+  <path d="M48 7h4v1h-4zM58 8h6v1h-6zM48 14h8v1h-8z" fill="#1b5c9a"/>
+  <!-- remaining atlas cells reserved for future blocks -->
+  <rect x="0" y="16" width="64" height="48" fill="#000" opacity="0"/>
+</svg>
