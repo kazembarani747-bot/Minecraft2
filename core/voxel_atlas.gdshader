@@ -10,8 +10,8 @@ void fragment() {
     vec2 local_uv = fract(UV);
     vec2 atlas_uv = tile_origin + local_uv * tile_size;
     vec3 base = texture(atlas_texture, atlas_uv).rgb;
-    float ao = mix(0.55, 1.0, COLOR.r);
-    float voxel_light = mix(0.35, 1.0, COLOR.g);
+    float ao = mix(0.52, 1.0, COLOR.r);
+    float voxel_light = mix(0.22, 1.0, COLOR.g);
     ALBEDO = base * ao * voxel_light * world_light;
     ROUGHNESS = 1.0;
 }
