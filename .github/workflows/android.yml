@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 env:
   GODOT_VERSION: 4.4.1
   ANDROID_HOME: /usr/local/lib/android/sdk
@@ -84,6 +87,80 @@ jobs:
           export/android/android_sdk_path = "$ANDROID_HOME"
           EOF
           cat "$HOME/.config/godot/editor_settings-4.4.tres"
+
+      - name: Normalize GDScript types and commit fixes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              "core/gameplay_upgrade.gd": [
+                  ("var take := min(counts[i], remaining)", "var take: int = mini(counts[i], remaining)"),
+                  ("var daylight := 0.35 + max(0.0, sin(world_time / 240.0 * TAU)) * 0.65", "var daylight: float = 0.35 + maxf(0.0, sin(world_time / 240.0 * TAU)) * 0.65"),
+              ],
+              "core/mob_system.gd": [
+                  ("var distance := mob.global_position.distance_to(player.global_position)", "var distance: float = mob.global_position.distance_to(player.global_position)"),
+              ],
+              "core/world_engine.gd": [
+                  ("var ridge := abs(sin(float(wx) * 0.012 + float(wz) * 0.009)) * 3.0", "var ridge: float = absf(sin(float(wx) * 0.012 + float(wz) * 0.009)) * 3.0"),
+                  ("var h := 13.0 + broad + detail + ridge", "var h: float = 13.0 + broad + detail + ridge"),
+                  ("var parsed = JSON.parse_string(file.get_as_text())", "var parsed: Variant = JSON.parse_string(file.get_as_text())"),
+                  ("var saved_overrides = parsed.get(\"overrides\", {})", "var saved_overrides: Variant = parsed.get(\"overrides\", {})"),
+              ],
+              "core/chunk_renderer.gd": [
+                  ("var id := world.get_block(world_pos)", "var id: int = int(world.get_block(world_pos))"),
+                  ("var s1 := world.get_block(p + side_u) != 0", "var s1: bool = world.get_block(p + side_u) != 0"),
+                  ("var s2 := world.get_block(p + side_v) != 0", "var s2: bool = world.get_block(p + side_v) != 0"),
+                  ("var diag := world.get_block(p + side_u + side_v) != 0", "var diag: bool = world.get_block(p + side_u + side_v) != 0"),
+              ],
+              "core/water_physics.gd": [
+                  ("var p := player.global_position + offset", "var p: Vector3 = player.global_position + offset"),
+              ],
+              "core/npc_mind.gd": [
+                  ("func observe_player(player_id: String, event: String, intensity := 1.0) -> void:", "func observe_player(player_id: String, event: String, intensity: float = 1.0) -> void:"),
+                  ("var amount := clamp(intensity, 0.0, 1.0)", "var amount: float = clampf(intensity, 0.0, 1.0)"),
+              ],
+              "core/voxel_chunk.gd": [
+                  ("func _init(chunk_origin := Vector3i.ZERO) -> void:", "func _init(chunk_origin: Vector3i = Vector3i.ZERO) -> void:"),
+                  ("var h := clamp(height, 0, SIZE_Y)", "var h: int = clampi(height, 0, SIZE_Y)"),
+                  ("var wave := sin(float(x) * 0.55) + cos(float(z) * 0.47)", "var wave: float = sin(float(x) * 0.55) + cos(float(z) * 0.47)"),
+                  ("var height := 5 + int((wave + 2.0) * 2.0)", "var height: int = 5 + int((wave + 2.0) * 2.0)"),
+                  ("var block_id := get_block(x, y, z)", "var block_id: int = get_block(x, y, z)"),
+                  ("var nx := x + direction.x", "var nx: int = x + direction.x"),
+                  ("var ny := y + direction.y", "var ny: int = y + direction.y"),
+                  ("var nz := z + direction.z", "var nz: int = z + direction.z"),
+              ],
+              "main.gd": [
+                  ("var delta := event.position - move_start", "var delta: Vector2 = event.position - move_start"),
+              ],
+          }
+
+          changed = []
+          for filename, pairs in replacements.items():
+              path = Path(filename)
+              text = path.read_text(encoding="utf-8")
+              original = text
+              for old, new in pairs:
+                  text = text.replace(old, new)
+              if text != original:
+                  path.write_text(text, encoding="utf-8")
+                  changed.append(filename)
+
+          if changed:
+              print("Patched:", ", ".join(changed))
+          else:
+              print("No source normalization was needed.")
+          PY
+
+          if ! git diff --quiet; then
+            git config user.name "minecraft2-ci"
+            git config user.email "minecraft2-ci@users.noreply.github.com"
+            git add core main.gd
+            git commit -m "fix: normalize GDScript types [skip ci]"
+            git push
+          fi
 
       - name: Validate project and Android export configuration
         shell: bash
