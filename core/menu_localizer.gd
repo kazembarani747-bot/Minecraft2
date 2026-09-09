@@ -25,7 +25,7 @@ func _toggle_language() -> void:
     if panel:
         var header := panel.get_node_or_null("Label")
         if header:
-            header.text = localization.tr("settings")
+            header.text = localization.translate("settings")
         var language_button := panel.get_node_or_null("LanguageButton")
         if language_button:
             language_button.text = "زبان / Language"
