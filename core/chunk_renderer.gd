@@ -1,6 +1,7 @@
 extends Node
 
 # Minecraft2 chunk renderer: greedy meshing + 16x16 atlas + per-vertex voxel AO.
+# Runtime updates invalidate only the affected chunk and its border neighbors.
 const CHUNK_SIZE := 16
 const WORLD_HEIGHT := 64
 const RENDER_RADIUS := 4
@@ -16,6 +17,7 @@ var timer := 0.0
 var atlas_texture: Texture2D
 var atlas_shader: Shader
 var material_cache: Dictionary = {}
+var dirty_render_chunks: Dictionary = {}
 
 func _ready() -> void:
     world = get_node_or_null("/root/Minecraft2WorldEngine")
@@ -25,6 +27,10 @@ func _ready() -> void:
     player = get_tree().current_scene.get_node_or_null("Player") as Node3D
     if world == null or player == null or atlas_texture == null or atlas_shader == null:
         return
+    if world.has_signal("block_changed"):
+        world.block_changed.connect(_on_block_changed)
+    if world.has_signal("lighting_changed"):
+        world.lighting_changed.connect(_on_lighting_changed)
     root = Node3D.new()
     root.name = "VoxelChunkRenderRoot"
     get_tree().current_scene.add_child(root)
@@ -45,6 +51,25 @@ func _remove_legacy_blocks() -> void:
         if child is StaticBody3D and child.name in ["grass", "dirt", "stone", "water"]:
             child.queue_free()
 
+func _on_block_changed(position: Vector3i, _old_id: int, _new_id: int) -> void:
+    _mark_dirty_for_position(position)
+
+func _on_lighting_changed(position: Vector3i) -> void:
+    _mark_dirty_for_position(position)
+
+func _mark_dirty_for_position(position: Vector3i) -> void:
+    var cx := floori(float(position.x) / CHUNK_SIZE)
+    var cz := floori(float(position.z) / CHUNK_SIZE)
+    dirty_render_chunks[world.chunk_key(cx, cz)] = true
+    if posmod(position.x, CHUNK_SIZE) == 0:
+        dirty_render_chunks[world.chunk_key(cx - 1, cz)] = true
+    elif posmod(position.x, CHUNK_SIZE) == CHUNK_SIZE - 1:
+        dirty_render_chunks[world.chunk_key(cx + 1, cz)] = true
+    if posmod(position.z, CHUNK_SIZE) == 0:
+        dirty_render_chunks[world.chunk_key(cx, cz - 1)] = true
+    elif posmod(position.z, CHUNK_SIZE) == CHUNK_SIZE - 1:
+        dirty_render_chunks[world.chunk_key(cx, cz + 1)] = true
+
 func _sync_chunks() -> void:
     if world.has_method("_stream_now"):
         world._stream_now()
@@ -58,6 +83,11 @@ func _sync_chunks() -> void:
         var cz := int(parts[1])
         if abs(cx - center.x) <= RENDER_RADIUS and abs(cz - center.y) <= RENDER_RADIUS:
             needed[key] = true
+            if dirty_render_chunks.has(key):
+                if rendered.has(key):
+                    rendered[key].queue_free()
+                    rendered.erase(key)
+                dirty_render_chunks.erase(key)
             if not rendered.has(key):
                 _render_chunk(cx, cz)
     for key in rendered.keys():
@@ -265,7 +295,7 @@ func _face_config(normal_id: int) -> Array:
         2: return [Vector3i(0,1,0), Vector3i(0,1,0), Vector3i(0,0,1), Vector3i(1,0,0), WORLD_HEIGHT, CHUNK_SIZE, CHUNK_SIZE, true]
         3: return [Vector3i(0,-1,0), Vector3i(0,1,0), Vector3i(1,0,0), Vector3i(0,0,1), WORLD_HEIGHT, CHUNK_SIZE, CHUNK_SIZE, false]
         4: return [Vector3i(0,0,1), Vector3i(0,0,1), Vector3i(1,0,0), Vector3i(0,1,0), CHUNK_SIZE, CHUNK_SIZE, WORLD_HEIGHT, true]
-        _: return [Vector3i(0,0,-1), Vector3i(0,0,1), Vector3i(0,1,0), Vector3i(1,0,0), CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE, false]
+        _: return [Vector3i(0,0,-1), Vector3i(0,1,0), Vector3i(0,1,0), Vector3i(1,0,0), CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE, false]
 
 func _material_for(id: int) -> ShaderMaterial:
     if material_cache.has(id):
