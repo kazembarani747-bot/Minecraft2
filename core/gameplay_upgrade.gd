@@ -343,7 +343,7 @@ func _remove_item(name: String, amount: int) -> bool:
     var remaining := amount
     for i in range(inventory.size()):
         if inventory[i] == name and remaining > 0:
-            var take := min(counts[i], remaining)
+            var take: int = mini(counts[i], remaining)
             counts[i] -= take
             remaining -= take
     for i in range(extra_slots.size()):
@@ -408,7 +408,7 @@ func _update_day_cycle() -> void:
         sun.rotation_degrees = Vector3(-45.0 + sin(phase) * 35.0, -30.0 + cos(phase) * 70.0, 0.0)
         sun.light_energy = 0.35 + max(0.0, sin(phase)) * 1.05
     if env_node and env_node.environment:
-        var daylight := 0.35 + max(0.0, sin(world_time / 240.0 * TAU)) * 0.65
+        var daylight: float = 0.35 + maxf(0.0, sin(world_time / 240.0 * TAU)) * 0.65
         env_node.environment.ambient_light_energy = daylight
 
 func _update_hud() -> void:

@@ -9,8 +9,8 @@ var mood_strength := 0.0
 var trust: Dictionary = {}
 var memory: Array[Dictionary] = []
 
-func observe_player(player_id: String, event: String, intensity := 1.0) -> void:
-    var amount := clamp(intensity, 0.0, 1.0)
+func observe_player(player_id: String, event: String, intensity: float = 1.0) -> void:
+    var amount: float = clampf(intensity, 0.0, 1.0)
     memory.push_back({"player": player_id, "event": event, "time": Time.get_ticks_msec()})
     if memory.size() > 32:
         memory.pop_front()

@@ -9,7 +9,7 @@ var origin := Vector3i.ZERO
 var blocks: PackedInt32Array
 var dirty := true
 
-func _init(chunk_origin := Vector3i.ZERO) -> void:
+func _init(chunk_origin: Vector3i = Vector3i.ZERO) -> void:
     origin = chunk_origin
     blocks.resize(SIZE_X * SIZE_Y * SIZE_Z)
     blocks.fill(0)
@@ -32,15 +32,15 @@ func set_block(x: int, y: int, z: int, block_id: int) -> void:
     dirty = true
 
 func fill_column(x: int, z: int, height: int, top_id := 1, filler_id := 2) -> void:
-    var h := clamp(height, 0, SIZE_Y)
+    var h: int = clampi(height, 0, SIZE_Y)
     for y in range(h):
         set_block(x, y, z, top_id if y == h - 1 else filler_id)
 
 func build_test_terrain() -> void:
     for x in range(SIZE_X):
         for z in range(SIZE_Z):
-            var wave := sin(float(x) * 0.55) + cos(float(z) * 0.47)
-            var height := 5 + int((wave + 2.0) * 2.0)
+            var wave: float = sin(float(x) * 0.55) + cos(float(z) * 0.47)
+            var height: int = 5 + int((wave + 2.0) * 2.0)
             fill_column(x, z, height)
     dirty = true
 
@@ -56,13 +56,13 @@ func exposed_faces() -> Array[Dictionary]:
     for x in range(SIZE_X):
         for y in range(SIZE_Y):
             for z in range(SIZE_Z):
-                var block_id := get_block(x, y, z)
+                var block_id: int = get_block(x, y, z)
                 if block_id == 0:
                     continue
                 for direction in directions:
-                    var nx := x + direction.x
-                    var ny := y + direction.y
-                    var nz := z + direction.z
+                    var nx: int = x + direction.x
+                    var ny: int = y + direction.y
+                    var nz: int = z + direction.z
                     if not in_bounds(nx, ny, nz) or get_block(nx, ny, nz) == 0:
                         faces.append({"position": Vector3i(x, y, z), "normal": direction, "block": block_id})
     return faces

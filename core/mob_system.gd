@@ -74,7 +74,7 @@ func _simulate_mobs() -> void:
             mobs.erase(mob)
             continue
         var kind := str(mob.get_meta("kind", "pig"))
-        var distance := mob.global_position.distance_to(player.global_position)
+        var distance: float = mob.global_position.distance_to(player.global_position)
         var mood := "calm"
         var direction := Vector3.ZERO
 

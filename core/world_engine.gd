@@ -132,8 +132,8 @@ func _terrain_height(wx: int, wz: int) -> int:
     var seed_b := float(world_seed % 613)
     var broad := sin((float(wx) + seed_a) * 0.018) * 8.0 + cos((float(wz) - seed_b) * 0.021) * 7.0
     var detail := sin(float(wx + wz) * 0.055) * 2.0 + cos(float(wx - wz) * 0.043) * 1.5
-    var ridge := abs(sin(float(wx) * 0.012 + float(wz) * 0.009)) * 3.0
-    var h := 13.0 + broad + detail + ridge
+    var ridge: float = absf(sin(float(wx) * 0.012 + float(wz) * 0.009)) * 3.0
+    var h: float = 13.0 + broad + detail + ridge
     return clampi(int(round(h)), 2, WORLD_HEIGHT - 1)
 
 func _index(x: int, y: int, z: int) -> int:
@@ -283,7 +283,7 @@ func _load_world_state() -> void:
     var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
     if file == null:
         return
-    var parsed = JSON.parse_string(file.get_as_text())
+    var parsed: Variant = JSON.parse_string(file.get_as_text())
     file.close()
     if typeof(parsed) != TYPE_DICTIONARY:
         return
@@ -291,7 +291,7 @@ func _load_world_state() -> void:
     if version < 1 or version > 2:
         return
     world_seed = int(parsed.get("seed", WORLD_SEED))
-    var saved_overrides = parsed.get("overrides", {})
+    var saved_overrides: Variant = parsed.get("overrides", {})
     if typeof(saved_overrides) == TYPE_DICTIONARY:
         block_overrides = saved_overrides.duplicate(true)
         overrides_by_chunk.clear()

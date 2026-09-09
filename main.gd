@@ -200,7 +200,7 @@ func _unhandled_input(event: InputEvent) -> void:
         if event.index == look_touch_id:
             _look(event.relative)
         elif event.index == move_touch_id:
-            var delta := event.position - move_start
+            var delta: Vector2 = event.position - move_start
             move_vector = delta.limit_length(80.0) / 80.0
             if touch_mode == TOUCH_MODE_DPAD_TAP:
                 move_vector.x = 0.0 if abs(move_vector.x) < 0.35 else sign(move_vector.x)

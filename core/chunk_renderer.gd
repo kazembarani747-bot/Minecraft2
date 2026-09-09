@@ -212,7 +212,7 @@ func _build_greedy_geometry(cx: int, cz: int) -> Dictionary:
                 for u in range(u_count):
                     var local := axis_vec * slice + u_vec * u + v_vec * v
                     var world_pos := Vector3i(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE) + local
-                    var id := world.get_block(world_pos)
+                    var id: int = int(world.get_block(world_pos))
                     if id == 0:
                         continue
                     if world.get_block(world_pos + normal) == 0:
@@ -297,9 +297,9 @@ func _corner_ao(origin: Vector3i, normal: Vector3, du: Vector3, dv: Vector3, u_s
     var side_v := face_axis_v if v_side < 0.5 else -face_axis_v
     var n := Vector3i(roundi(normal.x), roundi(normal.y), roundi(normal.z))
     var p := corner + n
-    var s1 := world.get_block(p + side_u) != 0
-    var s2 := world.get_block(p + side_v) != 0
-    var diag := world.get_block(p + side_u + side_v) != 0
+    var s1: bool = world.get_block(p + side_u) != 0
+    var s2: bool = world.get_block(p + side_v) != 0
+    var diag: bool = world.get_block(p + side_u + side_v) != 0
     var occlusion := 3 if s1 and s2 else int(s1) + int(s2) + int(diag)
     return 1.0 - float(occlusion) / 4.0
 

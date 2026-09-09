@@ -35,7 +35,7 @@ func _physics_process(delta: float) -> void:
 
 func _is_water_at_player() -> bool:
     for offset in SAMPLE_OFFSETS:
-        var p := player.global_position + offset
+        var p: Vector3 = player.global_position + offset
         var cell := Vector3i(floori(p.x), floori(p.y), floori(p.z))
         if int(world.get_block(cell)) == WATER_ID:
             return true
