@@ -12,6 +12,7 @@ Minecraft2MobSystem="*res://core/mob_system.gd"
 Minecraft2WorldEngine="*res://core/world_engine.gd"
 Minecraft2ChunkRenderer="*res://core/chunk_renderer.gd"
 Minecraft2Atmosphere="*res://core/atmosphere.gd"
+Minecraft2SunShadow="*res://core/sun_shadow.gd"
 
 [display]
 window/size/viewport_width=1280
