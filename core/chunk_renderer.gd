@@ -1,8 +1,6 @@
 extends Node
 
-# Minecraft2 chunk renderer.
-# Uses greedy meshing to merge adjacent coplanar faces and a single original
-# 16x16-per-tile texture atlas. Simulation remains owned by World Engine.
+# Minecraft2 chunk renderer: greedy meshing + 16x16 atlas + per-vertex voxel AO.
 const CHUNK_SIZE := 16
 const WORLD_HEIGHT := 64
 const RENDER_RADIUS := 4
@@ -76,6 +74,8 @@ func _render_chunk(cx: int, cz: int) -> void:
     var buckets := _build_greedy_geometry(cx, cz)
     var face_count := 0
     for id in buckets.keys():
+        if id == "__collision":
+            continue
         var data: Dictionary = buckets[id]
         var vertices: PackedVector3Array = data["vertices"]
         if vertices.is_empty():
@@ -85,6 +85,7 @@ func _render_chunk(cx: int, cz: int) -> void:
         arrays[Mesh.ARRAY_VERTEX] = vertices
         arrays[Mesh.ARRAY_NORMAL] = data["normals"]
         arrays[Mesh.ARRAY_TEX_UV] = data["uvs"]
+        arrays[Mesh.ARRAY_COLOR] = data["colors"]
         arrays[Mesh.ARRAY_INDEX] = data["indices"]
         var mesh := ArrayMesh.new()
         mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -176,7 +177,7 @@ func _build_greedy_geometry(cx: int, cz: int) -> Dictionary:
                     var dv := Vector3(v_vec) * height
                     var n := Vector3(normal)
                     _ensure_bucket(buckets, id)
-                    _emit_quad(buckets[id], origin, du, dv, n, width, height)
+                    _emit_quad(buckets[id], origin, du, dv, n, width, height, Vector3i(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE) + origin_i)
                     _emit_collision(buckets["__collision"], origin, du, dv)
                     u += width
                 v += 1
@@ -190,14 +191,16 @@ func _ensure_bucket(buckets: Dictionary, id: int) -> void:
         "vertices": PackedVector3Array(),
         "normals": PackedVector3Array(),
         "uvs": PackedVector2Array(),
+        "colors": PackedColorArray(),
         "indices": PackedInt32Array(),
         "faces": 0
     }
 
-func _emit_quad(data: Dictionary, origin: Vector3, du: Vector3, dv: Vector3, normal: Vector3, width: int, height: int) -> void:
+func _emit_quad(data: Dictionary, origin: Vector3, du: Vector3, dv: Vector3, normal: Vector3, width: int, height: int, world_origin: Vector3i) -> void:
     var vertices: PackedVector3Array = data["vertices"]
     var normals: PackedVector3Array = data["normals"]
     var uvs: PackedVector2Array = data["uvs"]
+    var colors: PackedColorArray = data["colors"]
     var indices: PackedInt32Array = data["indices"]
     var base := vertices.size()
     var p0 := origin
@@ -208,13 +211,44 @@ func _emit_quad(data: Dictionary, origin: Vector3, du: Vector3, dv: Vector3, nor
     for i in range(4):
         normals.append(normal)
     uvs.append(Vector2(0, 0)); uvs.append(Vector2(width, 0)); uvs.append(Vector2(width, height)); uvs.append(Vector2(0, height))
+
+    var a0 := _corner_ao(world_origin, normal, du, dv, 0.0, 0.0)
+    var a1 := _corner_ao(world_origin, normal, du, dv, 1.0, 0.0)
+    var a2 := _corner_ao(world_origin, normal, du, dv, 1.0, 1.0)
+    var a3 := _corner_ao(world_origin, normal, du, dv, 0.0, 1.0)
+    colors.append(Color(a0, a0, a0, 1.0)); colors.append(Color(a1, a1, a1, 1.0))
+    colors.append(Color(a2, a2, a2, 1.0)); colors.append(Color(a3, a3, a3, 1.0))
+
     indices.append(base); indices.append(base + 1); indices.append(base + 2)
     indices.append(base); indices.append(base + 2); indices.append(base + 3)
     data["vertices"] = vertices
     data["normals"] = normals
     data["uvs"] = uvs
+    data["colors"] = colors
     data["indices"] = indices
     data["faces"] = int(data["faces"]) + 1
+
+func _corner_ao(origin: Vector3i, normal: Vector3, du: Vector3, dv: Vector3, u_side: float, v_side: float) -> float:
+    var face_axis_u := Vector3i(roundi(du.normalized().x), roundi(du.normalized().y), roundi(du.normalized().z))
+    var face_axis_v := Vector3i(roundi(dv.normalized().x), roundi(dv.normalized().y), roundi(dv.normalized().z))
+    var corner := origin
+    if u_side > 0.5:
+        corner += face_axis_u * max(1, int(abs(du.length())))
+    if v_side > 0.5:
+        corner += face_axis_v * max(1, int(abs(dv.length())))
+    var side_u := face_axis_u if u_side < 0.5 else -face_axis_u
+    var side_v := face_axis_v if v_side < 0.5 else -face_axis_v
+    var n := Vector3i(roundi(normal.x), roundi(normal.y), roundi(normal.z))
+    var p := corner + n
+    var s1 := world.get_block(p + side_u) != 0
+    var s2 := world.get_block(p + side_v) != 0
+    var diag := world.get_block(p + side_u + side_v) != 0
+    var occlusion := 0
+    if s1 and s2:
+        occlusion = 3
+    else:
+        occlusion = int(s1) + int(s2) + int(diag)
+    return 1.0 - float(occlusion) / 4.0
 
 func _emit_collision(data: PackedVector3Array, origin: Vector3, du: Vector3, dv: Vector3) -> void:
     var p0 := origin
