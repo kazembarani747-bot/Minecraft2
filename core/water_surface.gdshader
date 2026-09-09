@@ -11,7 +11,8 @@ void fragment() {
     vec2 atlas_uv = tile_origin + local_uv * tile_size;
     vec3 base = texture(atlas_texture, atlas_uv).rgb;
     float ripple = 0.035 * sin((UV.x + time_seconds * 0.08) * 6.2831) * cos((UV.y - time_seconds * 0.06) * 6.2831);
-    ALBEDO = base + vec3(ripple);
+    float sunlight = mix(0.28, 1.0, COLOR.g);
+    ALBEDO = (base + vec3(ripple)) * sunlight;
     ROUGHNESS = 0.08;
     METALLIC = 0.02;
     ALPHA = 0.68;
