@@ -1,7 +1,7 @@
 extends Node
 
-# Minecraft2 chunk renderer: greedy meshing + atlas + AO, with transparent water
-# and a small per-frame build budget to prevent mobile frame spikes.
+# Minecraft2 chunk renderer: greedy meshing + atlas + AO + skylight,
+# transparent water and a bounded build queue for stable mobile frame times.
 const CHUNK_SIZE := 16
 const WORLD_HEIGHT := 64
 const RENDER_RADIUS := 3
@@ -23,6 +23,7 @@ var material_cache: Dictionary = {}
 var dirty_render_chunks: Dictionary = {}
 var build_queue: Array[String] = []
 var queued: Dictionary = {}
+var queue_head := 0
 var water_material: ShaderMaterial
 
 func _ready() -> void:
@@ -31,7 +32,9 @@ func _ready() -> void:
     atlas_shader = load(SHADER_PATH) as Shader
     water_shader = load(WATER_SHADER_PATH) as Shader
     await get_tree().process_frame
-    player = get_tree().current_scene.get_node_or_null("Player") as Node3D
+    var scene := get_tree().current_scene
+    if scene != null:
+        player = scene.get_node_or_null("Player") as Node3D
     if world == null or player == null or atlas_texture == null or atlas_shader == null or water_shader == null:
         return
     if world.has_signal("block_changed"):
@@ -40,7 +43,7 @@ func _ready() -> void:
         world.lighting_changed.connect(_on_lighting_changed)
     root = Node3D.new()
     root.name = "VoxelChunkRenderRoot"
-    get_tree().current_scene.add_child(root)
+    scene.add_child(root)
     _remove_legacy_blocks()
     _sync_chunks()
 
@@ -91,8 +94,9 @@ func _queue_build(key: String) -> void:
 
 func _process_build_queue() -> void:
     var built := 0
-    while built < MAX_CHUNKS_PER_FRAME and not build_queue.is_empty():
-        var key := build_queue.pop_front()
+    while built < MAX_CHUNKS_PER_FRAME and queue_head < build_queue.size():
+        var key := build_queue[queue_head]
+        queue_head += 1
         queued.erase(key)
         if not world.chunks.has(key):
             continue
@@ -110,6 +114,9 @@ func _process_build_queue() -> void:
         dirty_render_chunks.erase(key)
         _render_chunk(cx, cz)
         built += 1
+    if queue_head > 64 and queue_head * 2 > build_queue.size():
+        build_queue = build_queue.slice(queue_head)
+        queue_head = 0
 
 func _sync_chunks() -> void:
     if world.has_method("_stream_now"):
@@ -267,9 +274,18 @@ func _emit_quad(data: Dictionary, origin: Vector3, du: Vector3, dv: Vector3, nor
     var a1 := _corner_ao(world_origin, normal, du, dv, 1.0, 0.0)
     var a2 := _corner_ao(world_origin, normal, du, dv, 1.0, 1.0)
     var a3 := _corner_ao(world_origin, normal, du, dv, 0.0, 1.0)
-    colors.append(Color(a0, 1.0, 1.0, 1.0)); colors.append(Color(a1, 1.0, 1.0, 1.0)); colors.append(Color(a2, 1.0, 1.0, 1.0)); colors.append(Color(a3, 1.0, 1.0, 1.0))
+    var light := (_corner_light(world_origin) + _corner_light(world_origin + _axis_step(du, width)) + _corner_light(world_origin + _axis_step(dv, height)) + _corner_light(world_origin + _axis_step(du, width) + _axis_step(dv, height))) * 0.25
+    colors.append(Color(a0, light, 1.0, 1.0)); colors.append(Color(a1, light, 1.0, 1.0)); colors.append(Color(a2, light, 1.0, 1.0)); colors.append(Color(a3, light, 1.0, 1.0))
     indices.append(base); indices.append(base + 1); indices.append(base + 2); indices.append(base); indices.append(base + 2); indices.append(base + 3)
     data["vertices"] = vertices; data["normals"] = normals; data["uvs"] = uvs; data["colors"] = colors; data["indices"] = indices; data["faces"] = int(data["faces"]) + 1
+
+func _axis_step(vec: Vector3, amount: int) -> Vector3i:
+    return Vector3i(roundi(vec.normalized().x), roundi(vec.normalized().y), roundi(vec.normalized().z)) * amount
+
+func _corner_light(pos: Vector3i) -> float:
+    if world.has_method("get_light_factor"):
+        return world.get_light_factor(pos)
+    return 1.0
 
 func _corner_ao(origin: Vector3i, normal: Vector3, du: Vector3, dv: Vector3, u_side: float, v_side: float) -> float:
     var face_axis_u := Vector3i(roundi(du.normalized().x), roundi(du.normalized().y), roundi(du.normalized().z))
