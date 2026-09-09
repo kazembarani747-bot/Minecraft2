@@ -181,11 +181,9 @@ func _build_greedy_geometry(cx: int, cz: int) -> Dictionary:
                     if id == 0:
                         u += 1
                         continue
-
                     var width := 1
                     while u + width < u_count and int(mask[v][u + width]) == id:
                         width += 1
-
                     var height := 1
                     var can_grow := true
                     while v + height < v_count and can_grow:
@@ -195,11 +193,9 @@ func _build_greedy_geometry(cx: int, cz: int) -> Dictionary:
                                 break
                         if can_grow:
                             height += 1
-
                     for yy in range(height):
                         for xx in range(width):
                             mask[v + yy][u + xx] = 0
-
                     var plane_offset := 1 if positive else 0
                     var origin_i := axis_vec * (slice + plane_offset) + u_vec * u + v_vec * v
                     var origin := Vector3(origin_i)
@@ -211,7 +207,6 @@ func _build_greedy_geometry(cx: int, cz: int) -> Dictionary:
                     _emit_collision(buckets["__collision"], origin, du, dv)
                     u += width
                 v += 1
-
     return buckets
 
 func _ensure_bucket(buckets: Dictionary, id: int) -> void:
@@ -241,14 +236,12 @@ func _emit_quad(data: Dictionary, origin: Vector3, du: Vector3, dv: Vector3, nor
     for i in range(4):
         normals.append(normal)
     uvs.append(Vector2(0, 0)); uvs.append(Vector2(width, 0)); uvs.append(Vector2(width, height)); uvs.append(Vector2(0, height))
-
     var a0 := _corner_ao(world_origin, normal, du, dv, 0.0, 0.0)
     var a1 := _corner_ao(world_origin, normal, du, dv, 1.0, 0.0)
     var a2 := _corner_ao(world_origin, normal, du, dv, 1.0, 1.0)
     var a3 := _corner_ao(world_origin, normal, du, dv, 0.0, 1.0)
-    colors.append(Color(a0, a0, a0, 1.0)); colors.append(Color(a1, a1, a1, 1.0))
-    colors.append(Color(a2, a2, a2, 1.0)); colors.append(Color(a3, a3, a3, 1.0))
-
+    colors.append(Color(a0, 1.0, 1.0, 1.0)); colors.append(Color(a1, 1.0, 1.0, 1.0))
+    colors.append(Color(a2, 1.0, 1.0, 1.0)); colors.append(Color(a3, 1.0, 1.0, 1.0))
     indices.append(base); indices.append(base + 1); indices.append(base + 2)
     indices.append(base); indices.append(base + 2); indices.append(base + 3)
     data["vertices"] = vertices
@@ -295,7 +288,7 @@ func _face_config(normal_id: int) -> Array:
         2: return [Vector3i(0,1,0), Vector3i(0,1,0), Vector3i(0,0,1), Vector3i(1,0,0), WORLD_HEIGHT, CHUNK_SIZE, CHUNK_SIZE, true]
         3: return [Vector3i(0,-1,0), Vector3i(0,1,0), Vector3i(1,0,0), Vector3i(0,0,1), WORLD_HEIGHT, CHUNK_SIZE, CHUNK_SIZE, false]
         4: return [Vector3i(0,0,1), Vector3i(0,0,1), Vector3i(1,0,0), Vector3i(0,1,0), CHUNK_SIZE, CHUNK_SIZE, WORLD_HEIGHT, true]
-        _: return [Vector3i(0,0,-1), Vector3i(0,1,0), Vector3i(0,1,0), Vector3i(1,0,0), CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE, false]
+        _: return [Vector3i(0,0,-1), Vector3i(0,0,1), Vector3i(0,1,0), Vector3i(1,0,0), CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE, false]
 
 func _material_for(id: int) -> ShaderMaterial:
     if material_cache.has(id):
