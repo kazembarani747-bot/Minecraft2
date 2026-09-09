@@ -126,16 +126,13 @@ func _generate_chunk(cx: int, cz: int) -> Dictionary:
     return chunk
 
 func _terrain_height(wx: int, wz: int) -> int:
-    # Layered low-frequency functions create broader hills, valleys and flatter beaches.
     var seed_a := float(world_seed % 997)
     var seed_b := float(world_seed % 613)
     var broad := sin((float(wx) + seed_a) * 0.018) * 8.0 + cos((float(wz) - seed_b) * 0.021) * 7.0
     var detail := sin(float(wx + wz) * 0.055) * 2.0 + cos(float(wx - wz) * 0.043) * 1.5
     var ridge := abs(sin(float(wx) * 0.012 + float(wz) * 0.009)) * 3.0
     var h := 13.0 + broad + detail + ridge
-    if h < WATER_LEVEL + 1.5:
-        h = WATER_LEVEL + 1.5
-    return clampi(int(round(h)), WATER_LEVEL + 1, WORLD_HEIGHT - 1)
+    return clampi(int(round(h)), 2, WORLD_HEIGHT - 1)
 
 func _index(x: int, y: int, z: int) -> int:
     return x + CHUNK_SIZE * (z + CHUNK_SIZE * y)
