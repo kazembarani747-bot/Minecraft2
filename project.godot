@@ -27,6 +27,7 @@ window/stretch/mode="canvas_items"
 
 [debug]
 gdscript/warnings/untyped_declaration=0
+gdscript/warnings/inferred_declaration=0
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
