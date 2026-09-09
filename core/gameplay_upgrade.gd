@@ -390,11 +390,26 @@ func _build_touch_actions() -> void:
     layer.add_child(inventory_button)
 
 func _update_survival(delta: float) -> void:
-    if player == null:
-        return
-    hunger = maxf(0.0, hunger - delta * 0.03)
+    if player.is_on_floor() and player.velocity.length() > 2.0:
+        hunger = max(0.0, hunger - delta * 0.012)
     if hunger <= 0.0:
-        health = maxf(0.0, health - delta * 0.15)
+        health = max(0.0, health - delta * 0.15)
+    if health <= 0.0:
+        player.global_position = Vector3(0, 5, 5)
+        health = MAX_HEALTH
+        hunger = MAX_HUNGER
+        _show_toast("بازگشت به نقطه شروع")
+
+func _update_day_cycle() -> void:
+    var sun := scene.get_node_or_null("DirectionalLight3D") as DirectionalLight3D
+    var env_node := scene.get_node_or_null("WorldEnvironment") as WorldEnvironment
+    if sun:
+        var phase := world_time / 240.0 * TAU
+        sun.rotation_degrees = Vector3(-45.0 + sin(phase) * 35.0, -30.0 + cos(phase) * 70.0, 0.0)
+        sun.light_energy = 0.35 + max(0.0, sin(phase)) * 1.05
+    if env_node and env_node.environment:
+        var daylight: float = 0.35 + maxf(0.0, sin(world_time / 240.0 * TAU)) * 0.65
+        env_node.environment.ambient_light_energy = daylight
 
 func _update_hud() -> void:
     if health_bar:
@@ -402,48 +417,90 @@ func _update_hud() -> void:
     if hunger_bar:
         hunger_bar.value = hunger
     if status:
-        status.text = "جان: %d/20   گرسنگی: %d/20" % [int(health), int(hunger)]
+        var phase := "روز" if sin(world_time / 240.0 * TAU) >= 0.0 else "شب"
+        status.text = "زمان: %s • بلوک انتخابی: %s ×%d • F2 ذخیره" % [phase, _fa_block_name(inventory[selected_slot]), counts[selected_slot]]
+    if toast and toast.modulate.a > 0.0:
+        toast.modulate.a = max(0.0, toast.modulate.a - get_process_delta_time() * 0.6)
 
-func _update_day_cycle() -> void:
-    var daylight: float = 0.35 + maxf(0.0, sin(world_time / 240.0 * TAU)) * 0.65
-    var env := scene.get_node_or_null("WorldEnvironment") as WorldEnvironment
-    if env and env.environment:
-        env.environment.ambient_light_energy = 0.25 + daylight * 0.45
-
-func _show_toast(message: String) -> void:
-    if toast:
-        toast.text = message
-
-func _fa_block_name(name: String) -> String:
-    var names := {"grass":"چمن", "dirt":"خاک", "stone":"سنگ", "wood":"چوب", "glass":"شیشه", "sand":"شن", "brick":"آجر", "lamp":"چراغ", "blue_crystal":"کریستال آبی"}
-    return str(names.get(name, name))
-
-func _block_color(name: String) -> Color:
-    var colors := {"grass":Color(0.32,0.72,0.25), "dirt":Color(0.48,0.30,0.16), "stone":Color(0.46,0.48,0.52), "wood":Color(0.52,0.34,0.18), "glass":Color(0.45,0.78,0.92,0.55), "sand":Color(0.82,0.72,0.48), "brick":Color(0.66,0.30,0.24), "lamp":Color(1.0,0.78,0.25), "blue_crystal":Color(0.25,0.65,1.0)}
-    return colors.get(name, Color.WHITE)
-
-func _save_persistent_state(force: bool) -> void:
-    if "Minecraft2SaveSystem" in ProjectSettings.get_setting("autoload", {}):
-        Minecraft2SaveSystem.save_game(player, inventory, counts, extra_slots, extra_counts, health, hunger, world_time)
+func _save_persistent_state(show_message: bool) -> void:
+    if not is_instance_valid(player):
+        return
+    var save_system := get_node_or_null("/root/Minecraft2SaveSystem")
+    if save_system == null:
+        return
+    var data := {
+        "player": {"x": player.global_position.x, "y": player.global_position.y, "z": player.global_position.z},
+        "health": health,
+        "hunger": hunger,
+        "world_time": world_time,
+        "selected_slot": selected_slot,
+        "inventory": inventory.duplicate(),
+        "counts": counts.duplicate(),
+        "extra_slots": extra_slots.duplicate(),
+        "extra_counts": extra_counts.duplicate()
+    }
+    var ok: bool = save_system.call("save_game", data)
+    if show_message:
+        _show_toast("بازی ذخیره شد" if ok else "ذخیره‌سازی ناموفق بود")
 
 func _load_persistent_state() -> void:
-    if "Minecraft2SaveSystem" in ProjectSettings.get_setting("autoload", {}):
-        var state: Dictionary = Minecraft2SaveSystem.load_game()
-        if not state.is_empty():
-            health = float(state.get("health", MAX_HEALTH))
-            hunger = float(state.get("hunger", MAX_HUNGER))
-            world_time = float(state.get("world_time", 0.0))
-            var saved_inventory: Variant = state.get("inventory", [])
-            var saved_counts: Variant = state.get("counts", [])
-            if saved_inventory is Array and saved_inventory.size() == inventory.size():
-                inventory = saved_inventory
-            if saved_counts is Array and saved_counts.size() == counts.size():
-                counts = saved_counts
-            var saved_extra_slots: Variant = state.get("extra_slots", [])
-            var saved_extra_counts: Variant = state.get("extra_counts", [])
-            if saved_extra_slots is Array and saved_extra_slots.size() == extra_slots.size():
-                extra_slots = saved_extra_slots
-            if saved_extra_counts is Array and saved_extra_counts.size() == extra_counts.size():
-                extra_counts = saved_extra_counts
-            _refresh_hotbar()
-            _refresh_inventory()
+    var save_system := get_node_or_null("/root/Minecraft2SaveSystem")
+    if save_system == null:
+        return
+    var data: Dictionary = save_system.call("load_game")
+    if data.is_empty():
+        return
+    var p: Dictionary = data.get("player", {})
+    if p.has("x") and p.has("y") and p.has("z"):
+        player.global_position = Vector3(float(p["x"]), float(p["y"]), float(p["z"]))
+    health = clamp(float(data.get("health", MAX_HEALTH)), 0.0, MAX_HEALTH)
+    hunger = clamp(float(data.get("hunger", MAX_HUNGER)), 0.0, MAX_HUNGER)
+    world_time = fmod(float(data.get("world_time", 0.0)), 240.0)
+    selected_slot = clamp(int(data.get("selected_slot", 0)), 0, HOTBAR_SIZE - 1)
+    var saved_inventory = data.get("inventory", [])
+    var saved_counts = data.get("counts", [])
+    if saved_inventory is Array and saved_inventory.size() == HOTBAR_SIZE:
+        inventory = saved_inventory.duplicate()
+    if saved_counts is Array and saved_counts.size() == HOTBAR_SIZE:
+        counts = saved_counts.duplicate()
+    var saved_extra = data.get("extra_slots", [])
+    var saved_extra_counts = data.get("extra_counts", [])
+    if saved_extra is Array and saved_extra.size() == extra_slots.size():
+        extra_slots = saved_extra.duplicate()
+    if saved_extra_counts is Array and saved_extra_counts.size() == extra_counts.size():
+        extra_counts = saved_extra_counts.duplicate()
+    _refresh_hotbar()
+    _refresh_inventory()
+    _show_toast("دنیای ذخیره‌شده بارگذاری شد")
+
+func _show_toast(text: String) -> void:
+    if toast == null:
+        return
+    toast.text = text
+    toast.modulate.a = 1.0
+
+func _block_color(name: String) -> Color:
+    match name:
+        "grass": return Color(0.25, 0.65, 0.18)
+        "dirt": return Color(0.32, 0.20, 0.10)
+        "stone": return Color(0.55, 0.55, 0.58)
+        "wood": return Color(0.45, 0.27, 0.12)
+        "glass": return Color(0.55, 0.80, 0.92, 0.55)
+        "sand": return Color(0.82, 0.72, 0.42)
+        "brick": return Color(0.65, 0.25, 0.18)
+        "lamp": return Color(1.0, 0.75, 0.25)
+        "blue_crystal": return Color(0.15, 0.55, 1.0)
+        _: return Color.WHITE
+
+func _fa_block_name(name: String) -> String:
+    match name:
+        "grass": return "چمن"
+        "dirt": return "خاک"
+        "stone": return "سنگ"
+        "wood": return "چوب"
+        "glass": return "شیشه"
+        "sand": return "شن"
+        "brick": return "آجر"
+        "lamp": return "چراغ"
+        "blue_crystal": return "کریستال آبی"
+        _: return name
