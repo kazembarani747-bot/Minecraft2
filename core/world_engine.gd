@@ -1,7 +1,7 @@
 extends Node
 
-# Minecraft2 World Engine v2: deterministic terrain, water basins, persistent edits
-# and bounded chunk streaming for mobile-friendly memory/CPU use.
+# Minecraft2 World Engine v3: deterministic terrain, water basins, persistent edits,
+# bounded chunk streaming and mobile-friendly vertical skylight.
 const CHUNK_SIZE := 16
 const WORLD_HEIGHT := 64
 const STREAM_RADIUS := 3
@@ -14,6 +14,7 @@ const BLOCK_GRASS := 1
 const BLOCK_DIRT := 2
 const BLOCK_STONE := 3
 const BLOCK_WATER := 4
+const MAX_SUNLIGHT := 15
 
 signal chunk_loaded(cx: int, cz: int)
 signal chunk_unloaded(cx: int, cz: int)
@@ -121,8 +122,9 @@ func _generate_chunk(cx: int, cz: int) -> Dictionary:
             if h <= WATER_LEVEL:
                 for y in range(h, WATER_LEVEL):
                     blocks[_index(lx, y, lz)] = BLOCK_WATER
-    var chunk := {"cx": cx, "cz": cz, "blocks": blocks, "dirty": false}
+    var chunk := {"cx": cx, "cz": cz, "blocks": blocks, "sunlight": PackedByteArray(), "dirty": false}
     _apply_overrides_to_chunk(chunk)
+    _build_sunlight(chunk)
     return chunk
 
 func _terrain_height(wx: int, wz: int) -> int:
@@ -150,6 +152,51 @@ func _apply_overrides_to_chunk(chunk: Dictionary) -> void:
             continue
         blocks[_index(world_to_local(pos.x), pos.y, world_to_local(pos.z))] = int(item[1])
     chunk["blocks"] = blocks
+
+func _build_sunlight(chunk: Dictionary) -> void:
+    var light := PackedByteArray()
+    light.resize(CHUNK_SIZE * WORLD_HEIGHT * CHUNK_SIZE)
+    light.fill(0)
+    var blocks: PackedInt32Array = chunk["blocks"]
+    for x in range(CHUNK_SIZE):
+        for z in range(CHUNK_SIZE):
+            var level := MAX_SUNLIGHT
+            for y in range(WORLD_HEIGHT - 1, -1, -1):
+                var id := blocks[_index(x, y, z)]
+                if id == BLOCK_AIR:
+                    light[_index(x, y, z)] = level
+                elif id == BLOCK_WATER:
+                    level = max(3, level - 3)
+                    light[_index(x, y, z)] = level
+                else:
+                    level = 0
+                    light[_index(x, y, z)] = 0
+    chunk["sunlight"] = light
+
+func get_sunlight(pos: Vector3i) -> int:
+    if pos.y < 0 or pos.y >= WORLD_HEIGHT:
+        return 0
+    var chunk := _ensure_chunk(world_to_chunk(pos.x), world_to_chunk(pos.z))
+    var light: PackedByteArray = chunk.get("sunlight", PackedByteArray())
+    if light.is_empty():
+        _build_sunlight(chunk)
+        light = chunk["sunlight"]
+    return int(light[_index(world_to_local(pos.x), pos.y, world_to_local(pos.z))])
+
+func get_light_factor(pos: Vector3i) -> float:
+    var value := get_sunlight(pos)
+    if get_block(pos) == BLOCK_WATER:
+        value = max(3, value)
+    return clampf(float(value) / float(MAX_SUNLIGHT), 0.12, 1.0)
+
+func _refresh_chunk_lighting(cx: int, cz: int) -> void:
+    var key := chunk_key(cx, cz)
+    if not chunks.has(key):
+        return
+    var chunk: Dictionary = chunks[key]
+    _build_sunlight(chunk)
+    chunks[key] = chunk
+    lighting_changed.emit(Vector3i(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE))
 
 func get_block(pos: Vector3i) -> int:
     if pos.y < 0 or pos.y >= WORLD_HEIGHT:
@@ -186,6 +233,15 @@ func set_block(pos: Vector3i, block_id: int) -> void:
     if not replaced:
         overrides_by_chunk[key].append([pos, block_id])
     dirty_chunks[key] = true
+    _refresh_chunk_lighting(cx, cz)
+    if world_to_local(pos.x) == 0:
+        _refresh_chunk_lighting(cx - 1, cz)
+    elif world_to_local(pos.x) == CHUNK_SIZE - 1:
+        _refresh_chunk_lighting(cx + 1, cz)
+    if world_to_local(pos.z) == 0:
+        _refresh_chunk_lighting(cx, cz - 1)
+    elif world_to_local(pos.z) == CHUNK_SIZE - 1:
+        _refresh_chunk_lighting(cx, cz + 1)
     block_changed.emit(pos, old_id, block_id)
     lighting_changed.emit(pos)
 
@@ -262,4 +318,4 @@ func _build_diagnostics() -> void:
 func _update_diagnostics() -> void:
     if diagnostic_label == null:
         return
-    diagnostic_label.text = "WORLD • Seed %d • Chunks %d • Stream R%d • Water L%d • Edits %d" % [world_seed, loaded_chunk_count(), STREAM_RADIUS, WATER_LEVEL, block_overrides.size()]
+    diagnostic_label.text = "WORLD • Seed %d • Chunks %d • Stream R%d • Sunlight ON • Water L%d • Edits %d" % [world_seed, loaded_chunk_count(), STREAM_RADIUS, WATER_LEVEL, block_overrides.size()]
