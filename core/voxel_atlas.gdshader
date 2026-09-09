@@ -8,6 +8,8 @@ uniform vec2 tile_size = vec2(0.25, 0.25);
 void fragment() {
     vec2 local_uv = fract(UV);
     vec2 atlas_uv = tile_origin + local_uv * tile_size;
-    ALBEDO = texture(atlas_texture, atlas_uv).rgb;
+    vec3 base = texture(atlas_texture, atlas_uv).rgb;
+    float ao = mix(0.55, 1.0, COLOR.r);
+    ALBEDO = base * ao;
     ROUGHNESS = 1.0;
 }
