@@ -1,8 +1,7 @@
 extends Node
 
 # Lightweight water interaction for the CharacterBody3D player. Water remains
-# non-solid like a voxel game should be, while movement/gravity are damped and
-# upward buoyancy is applied when the player is submerged.
+# non-solid while movement/gravity are damped and upward buoyancy is applied.
 const WATER_ID := 4
 const SAMPLE_OFFSETS := [Vector3(0, 0.15, 0), Vector3(0, 0.9, 0)]
 const WATER_DRAG := 0.62
@@ -14,6 +13,8 @@ var world
 var in_water := false
 
 func _ready() -> void:
+    # Run after main.gd movement so water damping is not overwritten.
+    process_physics_priority = 100
     await get_tree().process_frame
     var scene := get_tree().current_scene
     if scene != null:
@@ -23,9 +24,8 @@ func _ready() -> void:
 func _physics_process(delta: float) -> void:
     if player == null or world == null:
         return
-    var submerged := _is_water_at_player()
-    in_water = submerged
-    if not submerged:
+    in_water = _is_water_at_player()
+    if not in_water:
         return
     player.velocity.x *= pow(WATER_DRAG, delta * 10.0)
     player.velocity.z *= pow(WATER_DRAG, delta * 10.0)
