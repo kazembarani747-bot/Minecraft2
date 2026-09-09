@@ -1,23 +1,31 @@
 extends Node
 
-# Chunk renderer: converts World Engine voxel data into one mesh per chunk.
-# It deliberately uses original procedural materials rather than Minecraft assets.
+# Minecraft2 chunk renderer.
+# Uses greedy meshing to merge adjacent coplanar faces and a single original
+# 16x16-per-tile texture atlas. Simulation remains owned by World Engine.
 const CHUNK_SIZE := 16
 const WORLD_HEIGHT := 64
 const RENDER_RADIUS := 4
 const UPDATE_SECONDS := 0.5
+const ATLAS_PATH := "res://assets/textures/minecraft2_atlas.svg"
+const SHADER_PATH := "res://core/voxel_atlas.gdshader"
 
 var world
 var player: Node3D
 var root: Node3D
 var rendered: Dictionary = {}
 var timer := 0.0
+var atlas_texture: Texture2D
+var atlas_shader: Shader
+var material_cache: Dictionary = {}
 
 func _ready() -> void:
     world = get_node_or_null("/root/Minecraft2WorldEngine")
+    atlas_texture = load(ATLAS_PATH) as Texture2D
+    atlas_shader = load(SHADER_PATH) as Shader
     await get_tree().process_frame
     player = get_tree().current_scene.get_node_or_null("Player") as Node3D
-    if world == null or player == null:
+    if world == null or player == null or atlas_texture == null or atlas_shader == null:
         return
     root = Node3D.new()
     root.name = "VoxelChunkRenderRoot"
@@ -40,8 +48,9 @@ func _remove_legacy_blocks() -> void:
             child.queue_free()
 
 func _sync_chunks() -> void:
+    if world.has_method("_stream_now"):
+        world._stream_now()
     var center := Vector2i(floori(player.global_position.x / CHUNK_SIZE), floori(player.global_position.z / CHUNK_SIZE))
-    world._stream_now()
     var needed := {}
     for key in world.chunks.keys():
         var parts := str(key).split(":")
@@ -64,95 +73,175 @@ func _render_chunk(cx: int, cz: int) -> void:
     node.position = Vector3(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE)
     root.add_child(node)
 
-    var st := SurfaceTool.new()
-    st.begin(Mesh.PRIMITIVE_TRIANGLES)
-    st.set_material(_material_for(1))
+    var buckets := _build_greedy_geometry(cx, cz)
     var face_count := 0
-    for lx in range(CHUNK_SIZE):
-        for y in range(WORLD_HEIGHT):
-            for lz in range(CHUNK_SIZE):
-                var id := world.get_block(Vector3i(cx * CHUNK_SIZE + lx, y, cz * CHUNK_SIZE + lz))
-                if id == 0:
-                    continue
-                for face in _faces_for(Vector3i(lx, y, lz), cx, cz):
-                    st.set_material(_material_for(id))
-                    _add_face(st, Vector3(lx, y, lz), face)
-                    face_count += 1
+    for id in buckets.keys():
+        var data: Dictionary = buckets[id]
+        var vertices: PackedVector3Array = data["vertices"]
+        if vertices.is_empty():
+            continue
+        var arrays := []
+        arrays.resize(Mesh.ARRAY_MAX)
+        arrays[Mesh.ARRAY_VERTEX] = vertices
+        arrays[Mesh.ARRAY_NORMAL] = data["normals"]
+        arrays[Mesh.ARRAY_TEX_UV] = data["uvs"]
+        arrays[Mesh.ARRAY_INDEX] = data["indices"]
+        var mesh := ArrayMesh.new()
+        mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+        var mesh_instance := MeshInstance3D.new()
+        mesh_instance.mesh = mesh
+        mesh_instance.material_override = _material_for(int(id))
+        mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+        node.add_child(mesh_instance)
+        face_count += int(data["faces"])
+
     if face_count == 0:
         node.queue_free()
         return
-    var mesh := st.commit()
-    var mesh_instance := MeshInstance3D.new()
-    mesh_instance.mesh = mesh
-    mesh_instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
-    node.add_child(mesh_instance)
 
-    # One static collision body per chunk keeps physics independent from visual cubes.
     var body := StaticBody3D.new()
     body.name = "Collision"
     var shape := CollisionShape3D.new()
     var concave := ConcavePolygonShape3D.new()
-    concave.data = _collision_faces(cx, cz)
+    concave.data = buckets["__collision"]
     shape.shape = concave
     body.add_child(shape)
     node.add_child(body)
     rendered[world.chunk_key(cx, cz)] = node
 
-func _faces_for(local: Vector3i, cx: int, cz: int) -> Array:
-    var world_pos := Vector3i(cx * CHUNK_SIZE + local.x, local.y, cz * CHUNK_SIZE + local.z)
-    var result: Array = []
-    var dirs := [
-        Vector3i(1, 0, 0), Vector3i(-1, 0, 0), Vector3i(0, 1, 0),
-        Vector3i(0, -1, 0), Vector3i(0, 0, 1), Vector3i(0, 0, -1)
-    ]
-    for d in dirs:
-        if world.get_block(world_pos + d) == 0:
-            result.append(d)
-    return result
+func _build_greedy_geometry(cx: int, cz: int) -> Dictionary:
+    var buckets: Dictionary = {}
+    buckets["__collision"] = PackedVector3Array()
 
-func _add_face(st: SurfaceTool, p: Vector3, normal: Vector3i) -> void:
-    var corners := _face_corners(p, normal)
-    var n := Vector3(normal)
-    st.set_normal(n); st.set_uv(Vector2(0, 0)); st.add_vertex(corners[0])
-    st.set_normal(n); st.set_uv(Vector2(1, 0)); st.add_vertex(corners[1])
-    st.set_normal(n); st.set_uv(Vector2(1, 1)); st.add_vertex(corners[2])
-    st.set_normal(n); st.set_uv(Vector2(0, 0)); st.add_vertex(corners[0])
-    st.set_normal(n); st.set_uv(Vector2(1, 1)); st.add_vertex(corners[2])
-    st.set_normal(n); st.set_uv(Vector2(0, 1)); st.add_vertex(corners[3])
+    for normal_id in range(6):
+        var config := _face_config(normal_id)
+        var normal: Vector3i = config[0]
+        var axis_vec: Vector3i = config[1]
+        var u_vec: Vector3i = config[2]
+        var v_vec: Vector3i = config[3]
+        var slices: int = config[4]
+        var u_count: int = config[5]
+        var v_count: int = config[6]
+        var positive := bool(config[7])
 
-func _face_corners(p: Vector3, n: Vector3i) -> Array:
-    var x := p.x; var y := p.y; var z := p.z
-    if n == Vector3i(1, 0, 0): return [Vector3(x+1,y,z),Vector3(x+1,y+1,z),Vector3(x+1,y+1,z+1),Vector3(x+1,y,z+1)]
-    if n == Vector3i(-1, 0, 0): return [Vector3(x,y,z+1),Vector3(x,y+1,z+1),Vector3(x,y+1,z),Vector3(x,y,z)]
-    if n == Vector3i(0, 1, 0): return [Vector3(x,y+1,z),Vector3(x,y+1,z+1),Vector3(x+1,y+1,z+1),Vector3(x+1,y+1,z)]
-    if n == Vector3i(0, -1, 0): return [Vector3(x,y,z+1),Vector3(x,y,z),Vector3(x+1,y,z),Vector3(x+1,y,z+1)]
-    if n == Vector3i(0, 0, 1): return [Vector3(x+1,y,z+1),Vector3(x+1,y+1,z+1),Vector3(x,y+1,z+1),Vector3(x,y,z+1)]
-    return [Vector3(x,y,z),Vector3(x,y+1,z),Vector3(x+1,y+1,z),Vector3(x+1,y,z)]
+        for slice in range(slices):
+            var mask: Array = []
+            for v in range(v_count):
+                var row: Array = []
+                row.resize(u_count)
+                row.fill(0)
+                mask.append(row)
 
-func _collision_faces(cx: int, cz: int) -> PackedVector3Array:
-    var data := PackedVector3Array()
-    for lx in range(CHUNK_SIZE):
-        for y in range(WORLD_HEIGHT):
-            for lz in range(CHUNK_SIZE):
-                var pos := Vector3i(cx * CHUNK_SIZE + lx, y, cz * CHUNK_SIZE + lz)
-                if world.get_block(pos) == 0:
-                    continue
-                for face in _faces_for(Vector3i(lx, y, lz), cx, cz):
-                    var c := _face_corners(Vector3(lx, y, lz), face)
-                    for v in c:
-                        data.append(v + Vector3(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE))
-                    data.append(c[0] + Vector3(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE))
-                    data.append(c[2] + Vector3(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE))
-    return data
+            for v in range(v_count):
+                for u in range(u_count):
+                    var local := axis_vec * slice + u_vec * u + v_vec * v
+                    var world_pos := Vector3i(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE) + local
+                    var id := world.get_block(world_pos)
+                    if id == 0:
+                        continue
+                    if world.get_block(world_pos + normal) == 0:
+                        mask[v][u] = id
 
-func _material_for(id: int) -> StandardMaterial3D:
-    var m := StandardMaterial3D.new()
-    m.roughness = 1.0
-    if id == 1: m.albedo_color = Color(0.25, 0.65, 0.18)
-    elif id == 2: m.albedo_color = Color(0.40, 0.25, 0.12)
-    elif id == 3: m.albedo_color = Color(0.43, 0.45, 0.48)
-    elif id == 4:
-        m.albedo_color = Color(0.20, 0.45, 0.85, 0.72)
-        m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-    else: m.albedo_color = Color(1, 1, 1)
-    return m
+            var v := 0
+            while v < v_count:
+                var u := 0
+                while u < u_count:
+                    var id := int(mask[v][u])
+                    if id == 0:
+                        u += 1
+                        continue
+
+                    var width := 1
+                    while u + width < u_count and int(mask[v][u + width]) == id:
+                        width += 1
+
+                    var height := 1
+                    var can_grow := true
+                    while v + height < v_count and can_grow:
+                        for x in range(width):
+                            if int(mask[v + height][u + x]) != id:
+                                can_grow = false
+                                break
+                        if can_grow:
+                            height += 1
+
+                    for yy in range(height):
+                        for xx in range(width):
+                            mask[v + yy][u + xx] = 0
+
+                    var plane_offset := 1 if positive else 0
+                    var origin_i := axis_vec * (slice + plane_offset) + u_vec * u + v_vec * v
+                    var origin := Vector3(origin_i)
+                    var du := Vector3(u_vec) * width
+                    var dv := Vector3(v_vec) * height
+                    var n := Vector3(normal)
+                    _ensure_bucket(buckets, id)
+                    _emit_quad(buckets[id], origin, du, dv, n, width, height)
+                    _emit_collision(buckets["__collision"], origin, du, dv)
+                    u += width
+                v += 1
+
+    return buckets
+
+func _ensure_bucket(buckets: Dictionary, id: int) -> void:
+    if buckets.has(id):
+        return
+    buckets[id] = {
+        "vertices": PackedVector3Array(),
+        "normals": PackedVector3Array(),
+        "uvs": PackedVector2Array(),
+        "indices": PackedInt32Array(),
+        "faces": 0
+    }
+
+func _emit_quad(data: Dictionary, origin: Vector3, du: Vector3, dv: Vector3, normal: Vector3, width: int, height: int) -> void:
+    var vertices: PackedVector3Array = data["vertices"]
+    var normals: PackedVector3Array = data["normals"]
+    var uvs: PackedVector2Array = data["uvs"]
+    var indices: PackedInt32Array = data["indices"]
+    var base := vertices.size()
+    var p0 := origin
+    var p1 := origin + du
+    var p2 := origin + du + dv
+    var p3 := origin + dv
+    vertices.append(p0); vertices.append(p1); vertices.append(p2); vertices.append(p3)
+    for i in range(4):
+        normals.append(normal)
+    uvs.append(Vector2(0, 0)); uvs.append(Vector2(width, 0)); uvs.append(Vector2(width, height)); uvs.append(Vector2(0, height))
+    indices.append(base); indices.append(base + 1); indices.append(base + 2)
+    indices.append(base); indices.append(base + 2); indices.append(base + 3)
+    data["vertices"] = vertices
+    data["normals"] = normals
+    data["uvs"] = uvs
+    data["indices"] = indices
+    data["faces"] = int(data["faces"]) + 1
+
+func _emit_collision(data: PackedVector3Array, origin: Vector3, du: Vector3, dv: Vector3) -> void:
+    var p0 := origin
+    var p1 := origin + du
+    var p2 := origin + du + dv
+    var p3 := origin + dv
+    data.append(p0); data.append(p1); data.append(p2)
+    data.append(p0); data.append(p2); data.append(p3)
+
+func _face_config(normal_id: int) -> Array:
+    match normal_id:
+        0: return [Vector3i(1,0,0), Vector3i(1,0,0), Vector3i(0,1,0), Vector3i(0,0,1), CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE, true]
+        1: return [Vector3i(-1,0,0), Vector3i(1,0,0), Vector3i(0,0,1), Vector3i(0,1,0), CHUNK_SIZE, CHUNK_SIZE, WORLD_HEIGHT, false]
+        2: return [Vector3i(0,1,0), Vector3i(0,1,0), Vector3i(0,0,1), Vector3i(1,0,0), WORLD_HEIGHT, CHUNK_SIZE, CHUNK_SIZE, true]
+        3: return [Vector3i(0,-1,0), Vector3i(0,1,0), Vector3i(1,0,0), Vector3i(0,0,1), WORLD_HEIGHT, CHUNK_SIZE, CHUNK_SIZE, false]
+        4: return [Vector3i(0,0,1), Vector3i(0,0,1), Vector3i(1,0,0), Vector3i(0,1,0), CHUNK_SIZE, CHUNK_SIZE, WORLD_HEIGHT, true]
+        _: return [Vector3i(0,0,-1), Vector3i(0,0,1), Vector3i(0,1,0), Vector3i(1,0,0), CHUNK_SIZE, WORLD_HEIGHT, CHUNK_SIZE, false]
+
+func _material_for(id: int) -> ShaderMaterial:
+    if material_cache.has(id):
+        return material_cache[id]
+    var material := ShaderMaterial.new()
+    material.shader = atlas_shader
+    material.set_shader_parameter("atlas_texture", atlas_texture)
+    var tile_x := float((id - 1) % 4) * 0.25
+    var tile_y := float((id - 1) / 4) * 0.25
+    material.set_shader_parameter("tile_origin", Vector2(tile_x, tile_y))
+    material.set_shader_parameter("tile_size", Vector2(0.25, 0.25))
+    material_cache[id] = material
+    return material
