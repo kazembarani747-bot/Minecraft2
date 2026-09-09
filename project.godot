@@ -16,6 +16,7 @@ Minecraft2SunShadow="*res://core/sun_shadow.gd"
 Minecraft2Performance="*res://core/performance_controller.gd"
 Minecraft2BlockEditBridge="*res://core/block_edit_bridge.gd"
 Minecraft2WaterPhysics="*res://core/water_physics.gd"
+Minecraft2MobileActions="*res://core/mobile_actions.gd"
 
 [display]
 window/size/viewport_width=1280
