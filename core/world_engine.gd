@@ -1,12 +1,13 @@
 extends Node
 
-# Minecraft2 World Engine v1: deterministic infinite-ish chunk streaming,
-# persistent block edits, chunk lifecycle and world diagnostics.
+# Minecraft2 World Engine v2: deterministic terrain, water basins, persistent edits
+# and bounded chunk streaming for mobile-friendly memory/CPU use.
 const CHUNK_SIZE := 16
 const WORLD_HEIGHT := 64
-const STREAM_RADIUS := 4
-const UNLOAD_RADIUS := 6
+const STREAM_RADIUS := 3
+const UNLOAD_RADIUS := 5
 const WORLD_SEED := 20260908
+const WATER_LEVEL := 5
 const SAVE_PATH := "user://Minecraft2/worlds/world_engine.json"
 const BLOCK_AIR := 0
 const BLOCK_GRASS := 1
@@ -17,11 +18,13 @@ const BLOCK_WATER := 4
 signal chunk_loaded(cx: int, cz: int)
 signal chunk_unloaded(cx: int, cz: int)
 signal block_changed(position: Vector3i, old_id: int, new_id: int)
+signal lighting_changed(position: Vector3i)
 
 var world_seed := WORLD_SEED
 var chunks: Dictionary = {}
 var dirty_chunks: Dictionary = {}
 var block_overrides: Dictionary = {}
+var overrides_by_chunk: Dictionary = {}
 var player: Node3D
 var stream_timer := 0.0
 var save_timer := 0.0
@@ -40,7 +43,7 @@ func _process(delta: float) -> void:
         return
     stream_timer += delta
     save_timer += delta
-    if stream_timer >= 0.5:
+    if stream_timer >= 0.35:
         stream_timer = 0.0
         _stream_now()
     if save_timer >= 20.0:
@@ -67,10 +70,16 @@ func _stream_now() -> void:
         return
     var center_cx := world_to_chunk(floori(player.global_position.x))
     var center_cz := world_to_chunk(floori(player.global_position.z))
+    var targets: Array[Vector3i] = []
     for dz in range(-STREAM_RADIUS, STREAM_RADIUS + 1):
         for dx in range(-STREAM_RADIUS, STREAM_RADIUS + 1):
             if dx * dx + dz * dz <= STREAM_RADIUS * STREAM_RADIUS:
-                _ensure_chunk(center_cx + dx, center_cz + dz)
+                targets.append(Vector3i(center_cx + dx, 0, center_cz + dz))
+    targets.sort_custom(func(a: Vector3i, b: Vector3i):
+        return a.distance_squared_to(Vector3i(center_cx, 0, center_cz)) < b.distance_squared_to(Vector3i(center_cx, 0, center_cz))
+    )
+    for target in targets:
+        _ensure_chunk(target.x, target.z)
 
     var to_unload: Array[String] = []
     for key in chunks.keys():
@@ -109,18 +118,24 @@ func _generate_chunk(cx: int, cz: int) -> Dictionary:
                 if y == h - 1:
                     id = BLOCK_GRASS
                 blocks[_index(lx, y, lz)] = id
-            if h < 4:
-                for y in range(h, 4):
+            if h <= WATER_LEVEL:
+                for y in range(h, WATER_LEVEL):
                     blocks[_index(lx, y, lz)] = BLOCK_WATER
     var chunk := {"cx": cx, "cz": cz, "blocks": blocks, "dirty": false}
     _apply_overrides_to_chunk(chunk)
     return chunk
 
 func _terrain_height(wx: int, wz: int) -> int:
-    var a := sin(float(wx + world_seed % 997) * 0.035) * 5.0
-    var b := cos(float(wz - world_seed % 613) * 0.041) * 5.0
-    var c := sin(float(wx + wz) * 0.018) * 4.0
-    return clampi(12 + int(a + b + c), 3, WORLD_HEIGHT - 1)
+    # Layered low-frequency functions create broader hills, valleys and flatter beaches.
+    var seed_a := float(world_seed % 997)
+    var seed_b := float(world_seed % 613)
+    var broad := sin((float(wx) + seed_a) * 0.018) * 8.0 + cos((float(wz) - seed_b) * 0.021) * 7.0
+    var detail := sin(float(wx + wz) * 0.055) * 2.0 + cos(float(wx - wz) * 0.043) * 1.5
+    var ridge := abs(sin(float(wx) * 0.012 + float(wz) * 0.009)) * 3.0
+    var h := 13.0 + broad + detail + ridge
+    if h < WATER_LEVEL + 1.5:
+        h = WATER_LEVEL + 1.5
+    return clampi(int(round(h)), WATER_LEVEL + 1, WORLD_HEIGHT - 1)
 
 func _index(x: int, y: int, z: int) -> int:
     return x + CHUNK_SIZE * (z + CHUNK_SIZE * y)
@@ -130,18 +145,13 @@ func _override_key(pos: Vector3i) -> String:
 
 func _apply_overrides_to_chunk(chunk: Dictionary) -> void:
     var blocks: PackedInt32Array = chunk["blocks"]
-    var cx: int = chunk["cx"]
-    var cz: int = chunk["cz"]
-    for key in block_overrides.keys():
-        var parts := str(key).split(",")
-        if parts.size() != 3:
-            continue
-        var pos := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
-        if world_to_chunk(pos.x) != cx or world_to_chunk(pos.z) != cz:
-            continue
+    var key := chunk_key(int(chunk["cx"]), int(chunk["cz"]))
+    var list: Array = overrides_by_chunk.get(key, [])
+    for item in list:
+        var pos: Vector3i = item[0]
         if pos.y < 0 or pos.y >= WORLD_HEIGHT:
             continue
-        blocks[_index(world_to_local(pos.x), pos.y, world_to_local(pos.z))] = int(block_overrides[key])
+        blocks[_index(world_to_local(pos.x), pos.y, world_to_local(pos.z))] = int(item[1])
     chunk["blocks"] = blocks
 
 func get_block(pos: Vector3i) -> int:
@@ -157,16 +167,30 @@ func set_block(pos: Vector3i, block_id: int) -> void:
     var old_id := get_block(pos)
     if old_id == block_id:
         return
-    var chunk_key_value := chunk_key(world_to_chunk(pos.x), world_to_chunk(pos.z))
-    var chunk := _ensure_chunk(world_to_chunk(pos.x), world_to_chunk(pos.z))
+    var cx := world_to_chunk(pos.x)
+    var cz := world_to_chunk(pos.z)
+    var key := chunk_key(cx, cz)
+    var chunk := _ensure_chunk(cx, cz)
     var blocks: PackedInt32Array = chunk["blocks"]
     blocks[_index(world_to_local(pos.x), pos.y, world_to_local(pos.z))] = block_id
     chunk["blocks"] = blocks
     chunk["dirty"] = true
-    chunks[chunk_key_value] = chunk
-    block_overrides[_override_key(pos)] = block_id
-    dirty_chunks[chunk_key_value] = true
+    chunks[key] = chunk
+    var o_key := _override_key(pos)
+    block_overrides[o_key] = block_id
+    if not overrides_by_chunk.has(key):
+        overrides_by_chunk[key] = []
+    var replaced := false
+    for item in overrides_by_chunk[key]:
+        if item[0] == pos:
+            item[1] = block_id
+            replaced = true
+            break
+    if not replaced:
+        overrides_by_chunk[key].append([pos, block_id])
+    dirty_chunks[key] = true
     block_changed.emit(pos, old_id, block_id)
+    lighting_changed.emit(pos)
 
 func _unload_chunk(key: String) -> void:
     if not chunks.has(key):
@@ -190,7 +214,7 @@ func save_world() -> bool:
     if file == null:
         return false
     var payload := {
-        "version": 1,
+        "version": 2,
         "seed": world_seed,
         "overrides": block_overrides,
         "saved_at": Time.get_datetime_string_from_system(true)
@@ -208,12 +232,25 @@ func _load_world_state() -> void:
         return
     var parsed = JSON.parse_string(file.get_as_text())
     file.close()
-    if typeof(parsed) != TYPE_DICTIONARY or int(parsed.get("version", 0)) != 1:
+    if typeof(parsed) != TYPE_DICTIONARY:
+        return
+    var version := int(parsed.get("version", 0))
+    if version < 1 or version > 2:
         return
     world_seed = int(parsed.get("seed", WORLD_SEED))
     var saved_overrides = parsed.get("overrides", {})
     if typeof(saved_overrides) == TYPE_DICTIONARY:
         block_overrides = saved_overrides.duplicate(true)
+        overrides_by_chunk.clear()
+        for key in block_overrides.keys():
+            var parts := str(key).split(",")
+            if parts.size() != 3:
+                continue
+            var pos := Vector3i(int(parts[0]), int(parts[1]), int(parts[2]))
+            var ckey := chunk_key(world_to_chunk(pos.x), world_to_chunk(pos.z))
+            if not overrides_by_chunk.has(ckey):
+                overrides_by_chunk[ckey] = []
+            overrides_by_chunk[ckey].append([pos, int(block_overrides[key])])
 
 func _build_diagnostics() -> void:
     var layer := CanvasLayer.new()
@@ -228,4 +265,4 @@ func _build_diagnostics() -> void:
 func _update_diagnostics() -> void:
     if diagnostic_label == null:
         return
-    diagnostic_label.text = "WORLD ENGINE • Seed %d • Chunks %d • Streaming R%d • Saved edits %d" % [world_seed, loaded_chunk_count(), STREAM_RADIUS, block_overrides.size()]
+    diagnostic_label.text = "WORLD • Seed %d • Chunks %d • Stream R%d • Water L%d • Edits %d" % [world_seed, loaded_chunk_count(), STREAM_RADIUS, WATER_LEVEL, block_overrides.size()]
