@@ -11,6 +11,7 @@ Minecraft2SaveSystem="*res://core/save_system.gd"
 Minecraft2MobSystem="*res://core/mob_system.gd"
 Minecraft2WorldEngine="*res://core/world_engine.gd"
 Minecraft2ChunkRenderer="*res://core/chunk_renderer.gd"
+Minecraft2Atmosphere="*res://core/atmosphere.gd"
 
 [display]
 window/size/viewport_width=1280
