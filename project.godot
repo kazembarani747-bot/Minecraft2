@@ -15,6 +15,7 @@ Minecraft2Atmosphere="*res://core/atmosphere.gd"
 Minecraft2SunShadow="*res://core/sun_shadow.gd"
 Minecraft2Performance="*res://core/performance_controller.gd"
 Minecraft2BlockEditBridge="*res://core/block_edit_bridge.gd"
+Minecraft2WaterPhysics="*res://core/water_physics.gd"
 
 [display]
 window/size/viewport_width=1280
@@ -27,10 +28,10 @@ window/stretch/mode="canvas_items"
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/default_filters/use_nearest_mipmap_filter=false
-textures/vram_compression/import_etc2_astc=true
 
 [input]
 move_forward={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":87)]}
 move_back={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":83)]}
 move_left={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":65)]}
 move_right={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":68)]}
+jump={"deadzone":0.5,"events":[Object(InputEventKey,"physical_keycode":32)]}
