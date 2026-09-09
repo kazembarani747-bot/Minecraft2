@@ -14,6 +14,7 @@ Minecraft2ChunkRenderer="*res://core/chunk_renderer.gd"
 Minecraft2Atmosphere="*res://core/atmosphere.gd"
 Minecraft2SunShadow="*res://core/sun_shadow.gd"
 Minecraft2Performance="*res://core/performance_controller.gd"
+Minecraft2BlockEditBridge="*res://core/block_edit_bridge.gd"
 
 [display]
 window/size/viewport_width=1280
