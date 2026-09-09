@@ -61,6 +61,6 @@ func set_language(code: String) -> void:
     cfg.set_value("language", "code", language)
     cfg.save(LANGUAGE_FILE)
 
-func tr(key: String) -> String:
+func translate(key: String) -> String:
     var table: Dictionary = strings.get(language, strings[DEFAULT_LANGUAGE])
     return str(table.get(key, key))
