@@ -98,6 +98,7 @@ jobs:
           replacements = {
               "core/gameplay_upgrade.gd": [
                   ("var take := min(counts[i], remaining)", "var take: int = mini(counts[i], remaining)"),
+                  ("var take := min(extra_counts[i], remaining)", "var take: int = mini(extra_counts[i], remaining)"),
                   ("var daylight := 0.35 + max(0.0, sin(world_time / 240.0 * TAU)) * 0.65", "var daylight: float = 0.35 + maxf(0.0, sin(world_time / 240.0 * TAU)) * 0.65"),
               ],
               "core/mob_system.gd": [
