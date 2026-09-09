@@ -10,6 +10,7 @@ Minecraft2GameplayUpgrade="*res://core/gameplay_upgrade.gd"
 Minecraft2SaveSystem="*res://core/save_system.gd"
 Minecraft2MobSystem="*res://core/mob_system.gd"
 Minecraft2WorldEngine="*res://core/world_engine.gd"
+Minecraft2ChunkRenderer="*res://core/chunk_renderer.gd"
 
 [display]
 window/size/viewport_width=1280
