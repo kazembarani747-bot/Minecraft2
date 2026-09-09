@@ -1,7 +1,7 @@
 extends Node
 
-# Real voxel editing bridge: routes interaction into WorldEngine so edits are
-# stored in the voxel world and the chunk renderer can rebuild only affected chunks.
+# Real voxel editing bridge: desktop mouse + mobile touch both route through
+# WorldEngine so edits are persistent and only affected chunks are rebuilt.
 const REACH := 6.0
 const AIR := 0
 const BLOCK_BY_NAME := {
@@ -21,6 +21,8 @@ var player: CharacterBody3D
 var camera: Camera3D
 var world
 var gameplay
+var touch_down: Dictionary = {}
+var touch_moved: Dictionary = {}
 
 func _ready() -> void:
     await get_tree().process_frame
@@ -45,6 +47,35 @@ func _input(event: InputEvent) -> void:
         elif event.button_index == MOUSE_BUTTON_RIGHT:
             if _place_target():
                 get_viewport().set_input_as_handled()
+        return
+    if event is InputEventScreenTouch:
+        if event.pressed:
+            touch_down[event.index] = event.position
+            touch_moved[event.index] = false
+        else:
+            var start: Vector2 = touch_down.get(event.index, event.position)
+            var moved := bool(touch_moved.get(event.index, false))
+            touch_down.erase(event.index)
+            touch_moved.erase(event.index)
+            if not moved:
+                _handle_touch_tap(event.position)
+                get_viewport().set_input_as_handled()
+        return
+    if event is InputEventScreenDrag:
+        if touch_down.has(event.index):
+            var start: Vector2 = touch_down[event.index]
+            if event.position.distance_to(start) > 18.0:
+                touch_moved[event.index] = true
+
+func _handle_touch_tap(position: Vector2) -> void:
+    var viewport_size := get_viewport().get_visible_rect().size
+    # Right side: interact with the crosshair target. A tap near the lower-right
+    # action zones is treated as place; elsewhere it breaks the targeted block.
+    if position.x >= viewport_size.x * 0.48:
+        if position.y >= viewport_size.y * 0.68:
+            _place_target()
+        else:
+            _break_target()
 
 func _raycast() -> Dictionary:
     var origin := camera.global_position
@@ -67,9 +98,7 @@ func _break_target() -> bool:
         return false
     var pos := _target_cell(hit, false)
     var id := int(world.get_block(pos))
-    if id == AIR:
-        return false
-    if id == 4:
+    if id == AIR or id == 4:
         return false
     var name := str(NAME_BY_BLOCK.get(id, "dirt"))
     if gameplay != null and gameplay.has_method("_add_item"):
@@ -78,8 +107,6 @@ func _break_target() -> bool:
     world.set_block(pos, AIR)
     if gameplay != null and gameplay.has_method("_show_toast"):
         gameplay.call("_show_toast", "برداشته شد: %s ×1" % name)
-    if gameplay != null and gameplay.has_method("_save_persistent_state"):
-        gameplay.call("_save_persistent_state", false)
     return true
 
 func _place_target() -> bool:
@@ -91,12 +118,12 @@ func _place_target() -> bool:
     if selected < 0 or selected >= inventory.size() or selected >= counts.size():
         return false
     if int(counts[selected]) <= 0:
-        if gameplay.has_method("_show_toast"):
-            gameplay.call("_show_toast", "این خانه خالی است")
+        gameplay.call("_show_toast", "این خانه خالی است")
         return false
     var block_name := str(inventory[selected])
     var id := int(BLOCK_BY_NAME.get(block_name, AIR))
     if id == AIR:
+        gameplay.call("_show_toast", "این بلاک هنوز در موتور جهان ثبت نشده است")
         return false
     var hit := _raycast()
     if hit.is_empty():
@@ -114,10 +141,7 @@ func _place_target() -> bool:
         gameplay.call("_refresh_hotbar")
     if gameplay.has_method("_refresh_inventory"):
         gameplay.call("_refresh_inventory")
-    if gameplay.has_method("_show_toast"):
-        gameplay.call("_show_toast", "ساخته شد: %s" % block_name)
-    if gameplay.has_method("_save_persistent_state"):
-        gameplay.call("_save_persistent_state", false)
+    gameplay.call("_show_toast", "ساخته شد: %s" % block_name)
     return true
 
 func _settings_open() -> bool:
